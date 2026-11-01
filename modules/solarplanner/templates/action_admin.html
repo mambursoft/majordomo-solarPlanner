@@ -39,9 +39,11 @@
 
   <!-- Control mode banner -->
   <div class="alert [#if ARMED_BLOCKED="1"#]alert-warning[#else#]alert-info[#endif#]" style="margin-bottom: 15px;">
-    <strong><#LANG_SP_CONTROL_MODE#>:</strong> <span class="label label-default">[#CONTROL_MODE#]</span>
-    &nbsp;|&nbsp; <#LANG_SP_ALLOWED_MODE#>: <span class="label label-default">[#ALLOWED_MODE#]</span>
+    <strong><#LANG_SP_CONTROL_MODE#>:</strong>
+    <span class="label label-primary">[#CONTROL_MODE_LABEL#]</span> <code style="font-size:11px;">[#CONTROL_MODE#]</code>
+    &nbsp;|&nbsp; <#LANG_SP_ALLOWED_MODE#>: <span class="label label-default">[#ALLOWED_MODE_LABEL#]</span>
     [#if ARMED_BLOCKED="1"#] &nbsp;—&nbsp; <span class="text-danger"><#LANG_SP_ARMED_BLOCKED#></span>[#endif#]
+    <div style="margin-top:6px; font-size:12px;" class="text-muted">[#CONTROL_MODE_DESC#]</div>
   </div>
 
   <!-- Navigation Tabs -->
@@ -159,19 +161,47 @@
   <!-- ===================== SAFETY ===================== -->
   [#if VIEW_MODE=="safety"#]
     <div class="panel panel-default">
-      <div class="panel-heading"><strong><#LANG_SP_SAFETY#></strong></div>
+      <div class="panel-heading"><strong><span class="glyphicon glyphicon-lock"></span> <#LANG_SP_SAFETY_MODE_TITLE#></strong></div>
       <div class="panel-body">
-        <p><#LANG_SP_SAFETY_NOTE#></p>
-        <form method="get" action="?" class="form-inline">
+        <p><#LANG_SP_SAFETY_INTRO#></p>
+        <form method="get" action="?" class="form-inline" style="margin-bottom: 8px;">
           <input type="hidden" name="action" value="set_mode">
-          <select name="control_mode" class="form-control" style="max-width: 240px;">
-            <option value="observe" [#if CONTROL_MODE=="observe"#]selected[#endif#]>observe</option>
-            <option value="shadow" [#if CONTROL_MODE=="shadow"#]selected[#endif#]>shadow</option>
-            <option value="armed" [#if CONTROL_MODE=="armed"#]selected[#endif#]>armed</option>
+          <label style="margin-right:8px;"><#LANG_SP_CHOOSE_MODE#>:</label>
+          <select name="control_mode" class="form-control" style="max-width: 320px;">
+            <option value="observe" [#if CONTROL_MODE=="observe"#]selected[#endif#]><#LANG_SP_STATE_OBSERVE#> (observe)</option>
+            <option value="shadow" [#if CONTROL_MODE=="shadow"#]selected[#endif#]><#LANG_SP_STATE_SHADOW#> (shadow)</option>
+            <option value="armed" [#if CONTROL_MODE=="armed"#]selected[#endif#]><#LANG_SP_STATE_ARMED#> (armed)</option>
           </select>
           <button class="btn btn-warning" type="submit"><#LANG_SP_SET_MODE#></button>
         </form>
-        [#if ARMED_BLOCKED="1"#]<p class="text-danger" style="margin-top: 10px;"><#LANG_SP_ARMED_BLOCKED#></p>[#endif#]
+        <p class="text-muted" style="font-size:12px;"><#LANG_SP_SAFETY_PICK_HINT#></p>
+        [#if ARMED_BLOCKED="1"#]<p class="text-danger" style="margin-top: 10px;"><span class="glyphicon glyphicon-alert"></span> <#LANG_SP_ARMED_BLOCKED#></p>[#endif#]
+      </div>
+    </div>
+
+    <!-- Plain-language reference of every state -->
+    <div class="panel panel-default">
+      <div class="panel-heading"><strong><span class="glyphicon glyphicon-info-sign"></span> <#LANG_SP_STATES_TITLE#></strong></div>
+      <div class="panel-body">
+        <p class="text-muted"><#LANG_SP_STATES_INTRO#></p>
+        <table class="table table-striped table-condensed">
+          <thead>
+            <tr>
+              <th style="width:22%;"><#LANG_SP_STATES_COL_NAME#></th>
+              <th style="width:14%;"><#LANG_SP_STATES_COL_CODE#></th>
+              <th><#LANG_SP_STATES_COL_DESC#></th>
+            </tr>
+          </thead>
+          <tbody>
+          [#begin STATES#]
+            <tr [#if STATES.IS_CURRENT=="1"#]class="success"[#endif#]>
+              <td><span class="label [#STATES.BADGE#]">[#STATES.NAME#]</span>[#if STATES.IS_CURRENT=="1"#] <small class="text-success">← <#LANG_SP_STATES_NOW#></small>[#endif#]</td>
+              <td><code>[#STATES.CODE#]</code></td>
+              <td style="font-size:13px;">[#STATES.DESC#]</td>
+            </tr>
+          [#end STATES#]
+          </tbody>
+        </table>
       </div>
     </div>
   [#endif#]

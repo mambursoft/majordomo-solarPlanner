@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog; this project uses semantic versioning.
 
+## [1.0.2] - 2026-11-01
+
+### Added
+- Localized, plain-language names and explanations for all ten control/safety
+  states (observe, shadow, approval_required, armed, applying, verifying,
+  active, degraded, blocked, manual_override) in UK/EN/RU, aimed at a
+  non-specialist homeowner.
+- Safety tab now shows a friendly mode selector and a full "what the modes and
+  states mean" reference table, highlighting the current state.
+- The control-mode banner shows the friendly label plus a one-line description
+  alongside the technical code.
+
 ## [1.0.1] - 2026-11-01
 
 ### Fixed

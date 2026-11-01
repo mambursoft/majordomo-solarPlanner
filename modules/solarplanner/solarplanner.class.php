@@ -10,7 +10,7 @@
  * @author     mambursoft
  * @copyright  2026 mambursoft
  * @license    MIT
- * @version    1.0.1
+ * @version    1.0.2
  */
 
 require_once(dirname(__FILE__) . '/lib/autoload.php');
@@ -160,8 +160,8 @@ class solarplanner extends module
                     'REPOSITORY_URL'  => 'https://github.com/mambursoft/majordomo-solarPlanner',
                     'DESCRIPTION_RU'  => $descRu,
                     'DESCRIPTION_EN'  => $descEn,
-                    'CURRENT_VERSION' => '1.0.1',
-                    'LATEST_VERSION'  => '1.0.1',
+                    'CURRENT_VERSION' => '1.0.2',
+                    'LATEST_VERSION'  => '1.0.2',
                     'IS_INSTALLED'    => 1,
                     'LATEST_UPDATE'   => date('Y-m-d H:i:s'),
                 );
@@ -171,7 +171,7 @@ class solarplanner extends module
                 $pRec['AUTHOR']         = 'mambursoft';
                 $pRec['DESCRIPTION_RU'] = $descRu;
                 $pRec['DESCRIPTION_EN'] = $descEn;
-                $pRec['CURRENT_VERSION']= '1.0.1';
+                $pRec['CURRENT_VERSION']= '1.0.2';
                 $pRec['IS_INSTALLED']   = 1;
                 SQLUpdate('plugins', $pRec);
             }
@@ -447,6 +447,72 @@ EOD;
     }
 
     /**
+     * Localized, plain-language dictionary of every control/safety state for a
+     * non-specialist homeowner. Text comes from the language files via LANG_*
+     * constants, with safe fallbacks if a key is missing.
+     *
+     * Returns: code => ['name'=>..., 'desc'=>..., 'badge'=>bootstrap label class]
+     */
+    private function stateDictionary()
+    {
+        $L = function ($const, $fallback) {
+            return defined($const) ? constant($const) : $fallback;
+        };
+        return array(
+            'observe' => array(
+                'name' => $L('LANG_SP_STATE_OBSERVE', 'Спостереження'),
+                'desc' => $L('LANG_SP_STATE_OBSERVE_D', 'Модуль лише дивиться: читає дані лічильника й батареї, нічого не рахує для керування і нічого не змінює в інверторі. Найбезпечніший режим для першого знайомства.'),
+                'badge' => 'label-default',
+            ),
+            'shadow' => array(
+                'name' => $L('LANG_SP_STATE_SHADOW', 'Тіньовий режим'),
+                'desc' => $L('LANG_SP_STATE_SHADOW_D', 'Модуль розраховує повний план (скільки докупити вночі, цільовий заряд на 07:00) і показує його вам, але НЕ надсилає жодних команд інвертору. Так можна тижнями перевіряти якість порад без ризику. Це режим за замовчуванням.'),
+                'badge' => 'label-info',
+            ),
+            'approval_required' => array(
+                'name' => $L('LANG_SP_STATE_APPROVAL', 'Потрібне підтвердження'),
+                'desc' => $L('LANG_SP_STATE_APPROVAL_D', 'План готовий до застосування, але чекає вашого дозволу. Нічого не запишеться, доки ви вручну не підтвердите саме цей план.'),
+                'badge' => 'label-warning',
+            ),
+            'armed' => array(
+                'name' => $L('LANG_SP_STATE_ARMED', 'Активне керування'),
+                'desc' => $L('LANG_SP_STATE_ARMED_D', 'Модулю дозволено записувати розклад Time of Use в інвертор — але лише після низки перевірок безпеки і з підтвердженим профілем пристрою. Вмикайте, коли переконались у плані в тіньовому режимі.'),
+                'badge' => 'label-danger',
+            ),
+            'applying' => array(
+                'name' => $L('LANG_SP_STATE_APPLYING', 'Застосування'),
+                'desc' => $L('LANG_SP_STATE_APPLYING_D', 'Прямо зараз модуль записує новий розклад в інвертор. Короткочасний технічний стан.'),
+                'badge' => 'label-primary',
+            ),
+            'verifying' => array(
+                'name' => $L('LANG_SP_STATE_VERIFYING', 'Перевірка запису'),
+                'desc' => $L('LANG_SP_STATE_VERIFYING_D', 'Модуль зчитує з інвертора те, що щойно записав, і звіряє з очікуваним. Успіхом вважається лише збіг, а не просто відсутність помилки звʼязку.'),
+                'badge' => 'label-primary',
+            ),
+            'active' => array(
+                'name' => $L('LANG_SP_STATE_ACTIVE', 'Працює'),
+                'desc' => $L('LANG_SP_STATE_ACTIVE_D', 'Розклад успішно записано й підтверджено зчитуванням. Інвертор працює за планом модуля.'),
+                'badge' => 'label-success',
+            ),
+            'degraded' => array(
+                'name' => $L('LANG_SP_STATE_DEGRADED', 'Обмежена робота'),
+                'desc' => $L('LANG_SP_STATE_DEGRADED_D', 'Щось пішло не так: застарілі дані, розбіжність після запису або недоступний провайдер. Модуль працює обережно й не виконує ризикованих записів, доки ситуація не виправиться.'),
+                'badge' => 'label-warning',
+            ),
+            'blocked' => array(
+                'name' => $L('LANG_SP_STATE_BLOCKED', 'Заблоковано'),
+                'desc' => $L('LANG_SP_STATE_BLOCKED_D', 'Запис заборонено через безпеку: тривога BMS чи інвертора, неперевірений профіль пристрою або заборонене поле. Керування не відбуватиметься, доки причину не усунуто.'),
+                'badge' => 'label-danger',
+            ),
+            'manual_override' => array(
+                'name' => $L('LANG_SP_STATE_MANUAL', 'Ручне керування'),
+                'desc' => $L('LANG_SP_STATE_MANUAL_D', 'Ви (або інший контролер) керуєте інвертором вручну. Модуль це поважає і не перезаписує ваші налаштування, доки ручний режим не завершиться.'),
+                'badge' => 'label-default',
+            ),
+        );
+    }
+
+    /**
      * Trigger a planning run (shadow calculation; never writes in shadow mode).
      * Delegates heavy work to the cycle via a control flag, and also computes a
      * quick plan inline for the UI when enough config exists.
@@ -472,9 +538,29 @@ EOD;
         }
         $out['VIEW_MODE'] = $vm;
 
-        $out['CONTROL_MODE']   = isset($this->config['CONTROL_MODE']) ? $this->config['CONTROL_MODE'] : 'shadow';
+        $controlMode = isset($this->config['CONTROL_MODE']) ? $this->config['CONTROL_MODE'] : 'shadow';
+        $out['CONTROL_MODE']   = $controlMode;
         $out['ALLOWED_MODE']   = $allowed;
         $out['ARMED_BLOCKED']  = ($allowed !== 'armed') ? 1 : 0;
+
+        // Friendly localized label + plain-language description for the states.
+        $states = $this->stateDictionary();
+        $out['CONTROL_MODE_LABEL'] = isset($states[$controlMode]) ? $states[$controlMode]['name'] : $controlMode;
+        $out['CONTROL_MODE_DESC']  = isset($states[$controlMode]) ? $states[$controlMode]['desc'] : '';
+        $out['ALLOWED_MODE_LABEL'] = isset($states[$allowed]) ? $states[$allowed]['name'] : $allowed;
+
+        // Full reference table for the Safety tab.
+        $stateRows = array();
+        foreach ($states as $code => $info) {
+            $stateRows[] = array(
+                'CODE' => $code,
+                'NAME' => htmlspecialchars($info['name']),
+                'DESC' => htmlspecialchars($info['desc']),
+                'BADGE' => $info['badge'],
+                'IS_CURRENT' => ($code === $controlMode) ? 1 : 0,
+            );
+        }
+        $out['STATES'] = $stateRows;
 
         // Settings for the form. API keys are shown masked (never echo the real
         // key); coordinates ARE shown to the owner in their own protected
