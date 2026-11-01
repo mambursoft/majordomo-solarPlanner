@@ -1,0 +1,55 @@
+name: CI
+
+# GitHub Actions must NOT need access to the home inverter or any private data.
+# This workflow only lints PHP, validates metadata and runs the offline tests.
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: [ '7.3', '7.4', '8.1', '8.4' ]
+    name: PHP ${{ matrix.php }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+
+      - name: PHP syntax check (php -l)
+        run: |
+          set -e
+          find . -name '*.php' -not -path './.git/*' -print0 \
+            | xargs -0 -n1 php -l
+
+      - name: Validate modinfo.json
+        run: php -r '$d=json_decode(file_get_contents("modinfo.json"),true); if(!$d||!isset($d["name"],$d["version"],$d["title"])){fwrite(STDERR,"invalid modinfo\n");exit(1);} echo "modinfo ok: {$d["name"]} {$d["version"]}\n";'
+
+      - name: Run offline test suite
+        run: php tests/run.php
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    name: Secret scan
+    steps:
+      - uses: actions/checkout@v4
+      - name: Grep for obvious secrets / private data
+        run: |
+          set -e
+          # Fail if anything that looks like a real key/coordinate slips in.
+          if grep -rInE '(api[_-]?key|token|secret)\s*[:=]\s*["'\''][A-Za-z0-9_\-]{16,}' \
+               --include='*.php' --include='*.json' --include='*.md' \
+               --exclude-dir='.git' . ; then
+            echo "Potential secret found"; exit 1
+          fi
+          echo "No obvious secrets found."

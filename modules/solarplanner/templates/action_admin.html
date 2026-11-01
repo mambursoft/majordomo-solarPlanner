@@ -1,0 +1,217 @@
+<div class="container-fluid" style="padding-top:12px;">
+
+  <ul class="nav nav-tabs" style="margin-bottom:14px;">
+    <li class="[#if VIEW_MODE="overview"#]active[#endif#]"><a href="?view_mode=overview"><#LANG_SP_OVERVIEW#></a></li>
+    <li class="[#if VIEW_MODE="plan"#]active[#endif#]"><a href="?view_mode=plan"><#LANG_SP_PLAN#></a></li>
+    <li class="[#if VIEW_MODE="providers"#]active[#endif#]"><a href="?view_mode=providers"><#LANG_SP_PROVIDERS#></a></li>
+    <li class="[#if VIEW_MODE="installation"#]active[#endif#]"><a href="?view_mode=installation"><#LANG_SP_INSTALLATION#></a></li>
+    <li class="[#if VIEW_MODE="deye"#]active[#endif#]"><a href="?view_mode=deye"><#LANG_SP_DEYE#></a></li>
+    <li class="[#if VIEW_MODE="safety"#]active[#endif#]"><a href="?view_mode=safety"><#LANG_SP_SAFETY#></a></li>
+    <li class="[#if VIEW_MODE="settings"#]active[#endif#]"><a href="?view_mode=settings"><#LANG_SP_SETTINGS#></a></li>
+  </ul>
+
+  [#if SUCCESS#]<div class="alert alert-success">{SUCCESS}</div>[#endif#]
+  [#if ERROR#]<div class="alert alert-danger">{ERROR}</div>[#endif#]
+
+  <div class="alert [#if ARMED_BLOCKED="1"#]alert-warning[#else#]alert-info[#endif#]">
+    <strong><#LANG_SP_CONTROL_MODE#>:</strong> {CONTROL_MODE}
+    &nbsp;|&nbsp; <#LANG_SP_ALLOWED_MODE#>: {ALLOWED_MODE}
+    [#if ARMED_BLOCKED="1"#] &nbsp;—&nbsp; <#LANG_SP_ARMED_BLOCKED#>[#endif#]
+    &nbsp;|&nbsp; <#LANG_SP_CYCLE#>: [#if CYCLE_ALIVE="1"#]<span class="label label-success">online</span>[#else#]<span class="label label-default">offline</span>[#endif#] ({CYCLE_TIME})
+  </div>
+
+  [#if HAS_BLOCKING="1"#]
+  <div class="panel panel-warning">
+    <div class="panel-heading"><#LANG_SP_BLOCKING_TITLE#></div>
+    <div class="panel-body">
+      <ul>
+      [#foreach BLOCKING_PARAMS#]
+        <li><code>{BLOCKING_PARAMS.KEY}</code> — {BLOCKING_PARAMS.LABEL}</li>
+      [#endforeach#]
+      </ul>
+      <p class="text-muted"><#LANG_SP_BLOCKING_NOTE#></p>
+    </div>
+  </div>
+  [#endif#]
+
+  [#if VIEW_MODE="overview"#]
+    <div class="row">
+      <div class="col-md-4"><div class="panel panel-default"><div class="panel-body">
+        <h4><#LANG_SP_TARGET_SOC#></h4>
+        <div style="font-size:34px;font-weight:bold;">{LAST_PLAN_TARGET_SOC}%</div>
+        <small class="text-muted">{LAST_PLAN_AT}</small>
+      </div></div></div>
+      <div class="col-md-4"><div class="panel panel-default"><div class="panel-body">
+        <h4><#LANG_SP_PV_TOMORROW#></h4>
+        <div style="font-size:34px;font-weight:bold;">{LAST_PLAN_PV_KWH} <small>кВт·год</small></div>
+        <small class="text-muted"><#LANG_SP_LOAD_TOMORROW#>: {LAST_PLAN_LOAD_KWH} кВт·год</small>
+      </div></div></div>
+      <div class="col-md-4"><div class="panel panel-default"><div class="panel-body">
+        <h4><#LANG_SP_NIGHT_IMPORT#></h4>
+        <div style="font-size:34px;font-weight:bold;">{LAST_PLAN_NIGHT_KWH} <small>кВт·год</small></div>
+        <small class="text-muted"><#LANG_SP_DAY_IMPORT#>: {LAST_PLAN_DAY_KWH} кВт·год</small>
+      </div></div></div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading"><#LANG_SP_EXPLANATION#> <span class="label label-default">{LAST_PLAN_STATUS}</span></div>
+      <div class="panel-body">
+        <p>{LAST_PLAN_EXPLANATION}</p>
+        <button class="btn btn-primary" onclick="spRunPlan()"><#LANG_SP_RUN_PLAN#></button>
+        <span class="text-muted" style="margin-left:10px;"><#LANG_SP_SHADOW_HINT#></span>
+      </div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading"><#LANG_SP_LIVE#></div>
+      <div class="panel-body">
+        SOC: <b>{SP_SOC}%</b> &nbsp; PV: <b>{SP_PV} кВт</b> &nbsp; <#LANG_SP_LOAD#>: <b>{SP_LOAD} кВт</b>
+      </div>
+    </div>
+  [#endif#]
+
+  [#if VIEW_MODE="plan"#]
+    <div class="panel panel-default">
+      <div class="panel-heading"><#LANG_SP_PLAN#> — {LAST_PLAN_STATUS}</div>
+      <div class="panel-body">
+        <table class="table table-condensed">
+          <tr><td><#LANG_SP_TARGET_SOC#></td><td><b>{LAST_PLAN_TARGET_SOC}%</b></td></tr>
+          <tr><td><#LANG_SP_NIGHT_IMPORT#></td><td>{LAST_PLAN_NIGHT_KWH} кВт·год</td></tr>
+          <tr><td><#LANG_SP_DAY_IMPORT#></td><td>{LAST_PLAN_DAY_KWH} кВт·год</td></tr>
+          <tr><td><#LANG_SP_PV_TOMORROW#></td><td>{LAST_PLAN_PV_KWH} кВт·год</td></tr>
+          <tr><td><#LANG_SP_LOAD_TOMORROW#></td><td>{LAST_PLAN_LOAD_KWH} кВт·год</td></tr>
+        </table>
+        <p class="text-muted">{LAST_PLAN_EXPLANATION}</p>
+        <div id="spPlanChart" style="height:260px;"></div>
+      </div>
+    </div>
+  [#endif#]
+
+  [#if VIEW_MODE="providers"#]
+    <div class="panel panel-default">
+      <div class="panel-heading"><#LANG_SP_PROVIDERS#></div>
+      <div class="panel-body">
+        <p>Open-Meteo: [#if CFG_OPEN_METEO_ENABLED="1"#]<span class="label label-success">on</span>[#else#]<span class="label label-default">off</span>[#endif#]</p>
+        <p>Forecast.Solar: [#if CFG_FORECAST_SOLAR_ENABLED="1"#]<span class="label label-success">on</span>[#else#]<span class="label label-default">off</span>[#endif#]</p>
+        <p>Solcast: [#if CFG_SOLCAST_ENABLED="1"#]<span class="label label-success">on</span>[#else#]<span class="label label-default">off</span>[#endif#]</p>
+        <p class="text-muted"><#LANG_SP_PROVIDERS_NOTE#></p>
+      </div>
+    </div>
+  [#endif#]
+
+  [#if VIEW_MODE="deye"#]
+    <div class="panel panel-default">
+      <div class="panel-heading"><#LANG_SP_DEYE#></div>
+      <div class="panel-body">
+        <p><#LANG_SP_DEYE_NOTE#></p>
+        <ul>
+          <li><#LANG_SP_DEYE_SLOTS#></li>
+          <li><#LANG_SP_DEYE_TRANSPORT#></li>
+          <li><#LANG_SP_DEYE_VERIFY#></li>
+        </ul>
+      </div>
+    </div>
+  [#endif#]
+
+  [#if VIEW_MODE="safety"#]
+    <div class="panel panel-default">
+      <div class="panel-heading"><#LANG_SP_SAFETY#></div>
+      <div class="panel-body">
+        <p><#LANG_SP_SAFETY_NOTE#></p>
+        <form method="get">
+          <input type="hidden" name="action" value="set_mode">
+          <select name="control_mode" class="form-control" style="max-width:240px;display:inline-block;">
+            <option value="observe">observe</option>
+            <option value="shadow">shadow</option>
+            <option value="armed">armed</option>
+          </select>
+          <button class="btn btn-warning" type="submit"><#LANG_SP_SET_MODE#></button>
+        </form>
+        [#if ARMED_BLOCKED="1"#]<p class="text-danger" style="margin-top:10px;"><#LANG_SP_ARMED_BLOCKED#></p>[#endif#]
+      </div>
+    </div>
+  [#endif#]
+
+  [#if VIEW_MODE="installation"#]
+    <div class="panel panel-default">
+      <div class="panel-heading"><#LANG_SP_INSTALLATION#></div>
+      <div class="panel-body">
+        <p class="text-muted"><#LANG_SP_INSTALL_NOTE#></p>
+      </div>
+    </div>
+  [#endif#]
+
+  [#if VIEW_MODE="settings"#]
+  <form method="post" action="?">
+    <input type="hidden" name="action" value="save_settings">
+    <div class="panel panel-default">
+      <div class="panel-heading"><#LANG_SP_SETTINGS#></div>
+      <div class="panel-body">
+        <div class="row">
+          <div class="col-md-4">
+            <label><#LANG_SP_TIMEZONE#></label>
+            <input class="form-control" name="timezone" value="{CFG_TIMEZONE}">
+          </div>
+          <div class="col-md-2">
+            <label><#LANG_SP_GRID_STEP#></label>
+            <input class="form-control" name="grid_step_min" value="{CFG_GRID_STEP_MIN}">
+          </div>
+          <div class="col-md-3">
+            <label><#LANG_SP_MODE#></label>
+            <input class="form-control" name="planner_mode" value="{CFG_MODE}">
+          </div>
+          <div class="col-md-3">
+            <label><#LANG_SP_ENSEMBLE#></label>
+            <input class="form-control" name="ensemble_method" value="{CFG_ENSEMBLE_METHOD}">
+          </div>
+        </div>
+        <hr>
+        <div class="row">
+          <div class="col-md-2"><label><#LANG_SP_CHEAP_START#></label><input class="form-control" name="cheap_start_hour" value="{CFG_CHEAP_START_HOUR}"></div>
+          <div class="col-md-2"><label><#LANG_SP_CHEAP_END#></label><input class="form-control" name="cheap_end_hour" value="{CFG_CHEAP_END_HOUR}"></div>
+          <div class="col-md-2"><label><#LANG_SP_CHEAP_PRICE#></label><input class="form-control" name="tariff_cheap_price" value="{CFG_TARIFF_CHEAP_PRICE}"></div>
+          <div class="col-md-2"><label><#LANG_SP_DAY_PRICE#></label><input class="form-control" name="tariff_day_price" value="{CFG_TARIFF_DAY_PRICE}"></div>
+          <div class="col-md-2"><label><#LANG_SP_RESERVE#></label><input class="form-control" name="reserve_soc_pct" value="{CFG_RESERVE_SOC_PCT}"></div>
+          <div class="col-md-2"><label><#LANG_SP_SOC_STEP#></label><input class="form-control" name="soc_step_pct" value="{CFG_SOC_STEP_PCT}"></div>
+        </div>
+        <hr>
+        <div class="row">
+          <div class="col-md-2"><label><#LANG_SP_BAT_COUNT#></label><input class="form-control" name="battery_count" value="{CFG_BATTERY_COUNT}"></div>
+          <div class="col-md-2"><label><#LANG_SP_BAT_CAP#></label><input class="form-control" name="battery_capacity_kwh" value="{CFG_BATTERY_CAPACITY_KWH}"></div>
+          <div class="col-md-2"><label><#LANG_SP_MIN_SOC#></label><input class="form-control" name="min_soc_pct" value="{CFG_MIN_SOC_PCT}"></div>
+          <div class="col-md-2"><label><#LANG_SP_MAX_SOC#></label><input class="form-control" name="max_soc_pct" value="{CFG_MAX_SOC_PCT}"></div>
+          <div class="col-md-2"><label><#LANG_SP_MAX_CH#></label><input class="form-control" name="max_charge_kw" value="{CFG_MAX_CHARGE_KW}"></div>
+          <div class="col-md-2"><label><#LANG_SP_MAX_DIS#></label><input class="form-control" name="max_discharge_kw" value="{CFG_MAX_DISCHARGE_KW}"></div>
+        </div>
+        <hr>
+        <div class="row">
+          <div class="col-md-3"><label>Latitude (private)</label><input class="form-control" name="latitude" value="{CFG_LATITUDE}" placeholder="***"></div>
+          <div class="col-md-3"><label>Longitude (private)</label><input class="form-control" name="longitude" value="{CFG_LONGITUDE}" placeholder="***"></div>
+          <div class="col-md-3"><label>Solcast API key (private)</label><input class="form-control" type="password" name="solcast_api_key" value="{CFG_SOLCAST_API_KEY}"></div>
+          <div class="col-md-3"><label>Forecast.Solar API key (private)</label><input class="form-control" type="password" name="forecast_solar_api_key" value="{CFG_FORECAST_SOLAR_API_KEY}"></div>
+        </div>
+        <hr>
+        <div class="checkbox"><label><input type="checkbox" name="open_meteo_enabled" [#if CFG_OPEN_METEO_ENABLED="1"#]checked[#endif#]> Open-Meteo</label></div>
+        <div class="checkbox"><label><input type="checkbox" name="forecast_solar_enabled" [#if CFG_FORECAST_SOLAR_ENABLED="1"#]checked[#endif#]> Forecast.Solar</label></div>
+        <div class="checkbox"><label><input type="checkbox" name="solcast_enabled" [#if CFG_SOLCAST_ENABLED="1"#]checked[#endif#]> Solcast</label></div>
+        <div class="checkbox"><label><input type="checkbox" name="allow_export" [#if CFG_ALLOW_EXPORT="1"#]checked[#endif#]> <#LANG_SP_ALLOW_EXPORT#></label></div>
+        <div class="checkbox"><label><input type="checkbox" name="profile_verified" [#if CFG_PROFILE_VERIFIED="1"#]checked[#endif#]> <#LANG_SP_PROFILE_VERIFIED#></label></div>
+
+        <div style="margin-top:14px;">
+          <button class="btn btn-success" type="submit"><#LANG_SP_SAVE#></button>
+        </div>
+      </div>
+    </div>
+  </form>
+  [#endif#]
+
+</div>
+
+<script>
+function spRunPlan() {
+  var x = new XMLHttpRequest();
+  x.open('GET', '?action=run_plan', true);
+  x.onload = function(){ try { var r = JSON.parse(x.responseText); alert(r.message || 'ok'); } catch(e){ alert('ok'); } };
+  x.send();
+}
+</script>

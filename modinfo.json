@@ -1,0 +1,15 @@
+{
+  "name": "solarplanner",
+  "title": "Solar Planner",
+  "module_name": "solarplanner",
+  "version": "1.0.0",
+  "category": "devices",
+  "author": "mambursoft",
+  "support": "https://github.com/mambursoft/majordomo-solarPlanner",
+  "repository": "https://github.com/mambursoft/majordomo-solarPlanner",
+  "min_php": "7.3",
+  "tested_php": "8.4",
+  "description": "Планувальник сонячної генерації та нічного заряду батарей для MajorDoMo. Мультипровайдерний прогноз PV (Open-Meteo, Forecast.Solar, Solcast), прогноз навантаження, інтервальний енергетичний симулятор, розрахунок TargetSocAt07, компілятор Deye Time of Use та безпечний shadow mode. За замовчуванням не пише в інвертор.",
+  "description_en": "Solar generation and night battery charge planner for MajorDoMo. Multi-provider PV forecast (Open-Meteo, Forecast.Solar, Solcast), load forecast, interval energy simulator, TargetSocAt07 calculation, Deye Time of Use compiler and a safe shadow mode. Does not write to the inverter by default.",
+  "description_ru": "Планировщик солнечной генерации и ночного заряда батарей для MajorDoMo. Мультипровайдерный прогноз PV (Open-Meteo, Forecast.Solar, Solcast), прогноз нагрузки, интервальный энергетический симулятор, расчёт TargetSocAt07, компилятор Deye Time of Use и безопасный shadow mode. По умолчанию не пишет в инвертор."
+}

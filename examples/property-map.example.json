@@ -1,0 +1,15 @@
+{
+  "_comment": "SYNTHETIC example. Map logical telemetry fields to the MajorDoMo object properties that your existing inverter/MQTT module already populates. Use your own real object names. Missing field -> treated as null, never a silent zero.",
+  "battery_soc": "Inverter.batterySoc",
+  "soc_updated_utc": "Inverter.batterySocUpdated",
+  "pv_power_kw": "Inverter.pvPowerKw",
+  "load_power_kw": "Inverter.loadPowerKw",
+  "grid_power_kw": "Inverter.gridPowerKw",
+  "battery_power_kw": "Inverter.batteryPowerKw",
+  "grid_connected": "Inverter.gridConnected",
+  "inverter_alarm": "Inverter.alarm",
+  "bms_charge_limit_a": "Inverter.bmsChargeLimitA",
+  "bms_discharge_limit_a": "Inverter.bmsDischargeLimitA",
+  "grid_charge_enabled": "Inverter.gridChargeEnabled",
+  "tou_schedule_json": "Inverter.touScheduleJson"
+}

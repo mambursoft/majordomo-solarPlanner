@@ -1,0 +1,41 @@
+# Build artifacts.
+# The distributable module packages (solarplanner*.tgz / *.tar.gz) ARE committed
+# intentionally so the published repo ships a ready-to-install package, matching
+# the convention of the sibling MajorDoMo modules. Other archives are ignored.
+*.zip
+!solarplanner.tgz
+!solarplanner.tar.gz
+!app_solarplanner.tgz
+!app_solarplanner.tar.gz
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+
+# Logs & runtime
+*.log
+*.tmp
+debug.*.log
+
+# Local scratch / temporary working files (kept inside the workspace, never committed)
+.tmp/
+
+# Private configuration (NEVER commit real installation data)
+config.local.json
+property-map.local.json
+*.private.json
+secrets.json
+.env
+
+# Local data / history databases
+data/
+*.sqlite
+*.db
+
+# Captured provider responses (may contain private site data)
+fixtures/real/

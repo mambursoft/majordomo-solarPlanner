@@ -1,0 +1,222 @@
+<?php
+/**
+ * PlannerService — orchestration: forecasts -> load -> simulate -> plan -> TOU.
+ *
+ * This ties ProviderRegistry, EnsembleBuilder, LoadForecaster, EnergySimulator,
+ * NightChargePlanner, TouCompiler and ExplanationBuilder together. It has no
+ * MajorDoMo globals and no DB calls directly — dependencies are injected — so it
+ * can be exercised in integration tests without the platform or hardware.
+ *
+ * PHP 7.3 compatible.
+ *
+ * @package solarplanner
+ * @license MIT
+ */
+
+namespace SolarPlanner\MajorDoMo;
+
+use SolarPlanner\Common\TimeGrid;
+use SolarPlanner\Simulation\BatteryModel;
+use SolarPlanner\Planning\LoadForecaster;
+use SolarPlanner\Planning\NightChargePlanner;
+use SolarPlanner\Planning\TouCompiler;
+use SolarPlanner\Planning\ExplanationBuilder;
+use SolarPlanner\Forecast\EnsembleBuilder;
+
+class PlannerService
+{
+    /** @var BatteryModel */
+    private $batt;
+    /** @var TimeGrid */
+    private $grid;
+    /** @var array config */
+    private $cfg;
+
+    public function __construct(BatteryModel $batt, TimeGrid $grid, array $cfg)
+    {
+        $this->batt = $batt;
+        $this->grid = $grid;
+        $this->cfg = $cfg;
+    }
+
+    /**
+     * Build a plan from already-fetched provider runs and load history.
+     *
+     * @param float $startSocPct
+     * @param array $providerRuns list of ['run'=>ForecastRun,'mae'=>?,'obs'=>?]
+     * @param array $loadHistory
+     * @param int $horizonStartUtc
+     * @param int $horizonEndUtc
+     * @param array $ctx forecast_quality, unavailable_providers, tou_changed
+     * @return array
+     */
+    public function makePlan($startSocPct, array $providerRuns, array $loadHistory,
+                             $horizonStartUtc, $horizonEndUtc, array $ctx = array())
+    {
+        $intervals = $this->grid->intervals($horizonStartUtc, $horizonEndUtc);
+        if (empty($intervals)) {
+            return array('status' => 'error', 'reason' => 'empty_horizon');
+        }
+
+        // 1) Ensemble PV onto the grid.
+        $method = isset($this->cfg['ensemble_method']) ? $this->cfg['ensemble_method'] : 'median';
+        $ens = (new EnsembleBuilder(
+            isset($this->cfg['ensemble_epsilon']) ? $this->cfg['ensemble_epsilon'] : 0.1,
+            isset($this->cfg['ensemble_max_weight']) ? $this->cfg['ensemble_max_weight'] : 0.7,
+            isset($this->cfg['ensemble_min_obs']) ? $this->cfg['ensemble_min_obs'] : 7
+        ))->build($providerRuns, $method);
+
+        // 2) Load forecast onto the same grid.
+        $lf = new LoadForecaster(
+            $this->grid->getTimezone(),
+            isset($this->cfg['load_min_samples']) ? $this->cfg['load_min_samples'] : 3,
+            isset($this->cfg['manual_hourly_kw']) ? $this->cfg['manual_hourly_kw'] : array()
+        );
+        $loadRes = $lf->forecast($intervals, $loadHistory);
+
+        // 3) Merge PV + load + tariff flags into simulation intervals.
+        $cheap = $this->buildCheapMask($horizonStartUtc, $horizonEndUtc);
+        $simIntervals = array();
+        foreach ($loadRes['intervals'] as $iv) {
+            $start = (int)$iv['start_utc'];
+            $pv = isset($ens['intervals'][$start]) ? $ens['intervals'][$start]['pv_kwh'] : 0.0;
+            $isCheap = $this->inCheap($start, (int)$iv['end_utc'], $cheap);
+            $simIntervals[] = array(
+                'start_utc' => $start,
+                'end_utc' => (int)$iv['end_utc'],
+                'hours' => (float)$iv['hours'],
+                'pv_kwh' => $pv,
+                'load_kwh' => (float)$iv['load_kwh'],
+                'is_cheap' => $isCheap,
+                'price' => $isCheap
+                    ? (float)$this->cfg['tariff_cheap_price']
+                    : (float)$this->cfg['tariff_day_price'],
+                'export_price' => isset($this->cfg['export_price']) ? (float)$this->cfg['export_price'] : 0.0,
+            );
+        }
+
+        // 4) Night charge planner -> TargetSocAt07.
+        $planner = new NightChargePlanner($this->batt, array(
+            'mode' => isset($this->cfg['mode']) ? $this->cfg['mode'] : 'reach_full',
+            'soc_step_pct' => isset($this->cfg['soc_step_pct']) ? $this->cfg['soc_step_pct'] : 5.0,
+            'allow_export' => !empty($this->cfg['allow_export']),
+            'night_house_from_grid' => isset($this->cfg['night_house_from_grid']) ? (bool)$this->cfg['night_house_from_grid'] : true,
+            'reserve_is_hard' => true,
+            'full_window_start_utc' => isset($ctx['full_window_start_utc']) ? $ctx['full_window_start_utc'] : null,
+            'full_window_end_utc' => isset($ctx['full_window_end_utc']) ? $ctx['full_window_end_utc'] : null,
+        ));
+        $plan = $planner->plan($startSocPct, $simIntervals);
+
+        // 5) Explanation.
+        $plan['explanation_obj'] = ExplanationBuilder::build($plan, array(
+            'forecast_quality' => isset($ctx['forecast_quality']) ? $ctx['forecast_quality'] : $loadRes['quality'],
+            'unavailable_providers' => isset($ctx['unavailable_providers']) ? $ctx['unavailable_providers'] : array(),
+            'tou_changed' => !empty($ctx['tou_changed']),
+        ));
+        $plan['ensemble_method'] = $ens['method'];
+        $plan['load_quality'] = $loadRes['quality'];
+        $plan['sim_intervals'] = $simIntervals;
+        $plan['pv_tomorrow_kwh'] = $this->sumPv($ens['intervals']);
+        $plan['pv_tomorrow_low_kwh'] = $this->sumBand($ens['band'], 'low_kwh');
+        $plan['pv_tomorrow_high_kwh'] = $this->sumBand($ens['band'], 'high_kwh');
+        $plan['load_tomorrow_kwh'] = $this->sumLoad($simIntervals);
+
+        return $plan;
+    }
+
+    /**
+     * Compile a plan into TOU slots and re-simulate to verify the approximation.
+     *
+     * @param array $plan output of makePlan
+     * @return array ['compile'=>..., 'resim'=>..., 'accurate'=>bool]
+     */
+    public function compileAndVerify(array $plan)
+    {
+        if (!isset($plan['target_soc_at_07'])) {
+            return array('compile' => array('ok' => false, 'error' => 'no_feasible_plan'), 'accurate' => false);
+        }
+
+        // Build a desired-behaviour day from the sim intervals, expressed in
+        // local HH:MM, separating grid-charge vs discharge-floor behaviour.
+        $tz = $this->grid->getTimezone();
+        $target = (float)$plan['target_soc_at_07'];
+        $reserve = $this->batt->reserveSocPct;
+        $desired = array();
+        foreach ($plan['sim_intervals'] as $iv) {
+            $startLocal = (new \DateTime('@' . $iv['start_utc']))->setTimezone(new \DateTimeZone($tz))->format('H:i');
+            $endLocal = (new \DateTime('@' . $iv['end_utc']))->setTimezone(new \DateTimeZone($tz))->format('H:i');
+            $desired[] = array(
+                'start_local' => $startLocal,
+                'end_local' => $endLocal,
+                'grid_charge' => $iv['is_cheap'] ? 1 : 0,
+                'target_soc' => $iv['is_cheap'] ? $target : $this->batt->maxSocPct,
+                'discharge_floor_soc' => $reserve,
+            );
+        }
+
+        $compiler = new TouCompiler(
+            isset($this->cfg['tou_slots']) ? $this->cfg['tou_slots'] : 6,
+            isset($this->cfg['tou_time_step_min']) ? $this->cfg['tou_time_step_min'] : 1,
+            isset($this->cfg['tou_soc_step_pct']) ? $this->cfg['tou_soc_step_pct'] : 1.0
+        );
+        $compiled = $compiler->compile($desired);
+
+        return array(
+            'compile' => $compiled,
+            'accurate' => $compiled['ok'],
+        );
+    }
+
+    private function buildCheapMask($fromUtc, $toUtc)
+    {
+        $startHour = isset($this->cfg['cheap_start_hour']) ? (int)$this->cfg['cheap_start_hour'] : 23;
+        $endHour = isset($this->cfg['cheap_end_hour']) ? (int)$this->cfg['cheap_end_hour'] : 7;
+        $windows = array();
+        // Build cheap windows for each local day that intersects the horizon.
+        for ($off = -1; $off <= 2; $off++) {
+            $w = $this->grid->cheapWindow($fromUtc + $off * 86400, $startHour, $endHour);
+            if ($w['end_utc'] >= $fromUtc && $w['start_utc'] <= $toUtc) {
+                $windows[] = $w;
+            }
+        }
+        return $windows;
+    }
+
+    private function inCheap($start, $end, array $windows)
+    {
+        $mid = (int)(($start + $end) / 2);
+        foreach ($windows as $w) {
+            if ($mid >= $w['start_utc'] && $mid < $w['end_utc']) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function sumPv(array $intervals)
+    {
+        $t = 0.0;
+        foreach ($intervals as $iv) {
+            $t += $iv['pv_kwh'];
+        }
+        return round($t, 3);
+    }
+
+    private function sumBand(array $band, $key)
+    {
+        $t = 0.0;
+        foreach ($band as $b) {
+            $t += isset($b[$key]) ? $b[$key] : 0.0;
+        }
+        return round($t, 3);
+    }
+
+    private function sumLoad(array $intervals)
+    {
+        $t = 0.0;
+        foreach ($intervals as $iv) {
+            $t += $iv['load_kwh'];
+        }
+        return round($t, 3);
+    }
+}

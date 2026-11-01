@@ -1,0 +1,21 @@
+{
+  "_comment": "Device profile TEMPLATE for Deye SUN-14/15/16/18/20K-SG05LP3-EU-SM2. Only the datasheet-confirmed TOU slot count (6) is set. verified=false and register addresses are empty ON PURPOSE. Fill addresses only from a verified map (your validated read, deye-inverter-mqtt or ha-solarman with a pinned commit SHA) and then set verified=true. Do NOT invent addresses.",
+  "id": "deye_sg05lp3",
+  "model_series": "SUN-14/15/16/18/20K-SG05LP3-EU-SM2",
+  "verified": false,
+  "firmware": null,
+  "tou_slots": 6,
+  "soc_mode": null,
+  "time_step_min": 1,
+  "soc_step_pct": 1,
+  "power_unit": null,
+  "transport": null,
+  "registers": {
+    "grid_charge_enable": null,
+    "tou_time": [],
+    "tou_soc": [],
+    "tou_power": [],
+    "tou_enable_bits": null
+  },
+  "notes": "TCP 8899 (logger) and Modbus TCP 502 are NOT the same protocol. Validate packed bits, shared registers and midnight-wrap behaviour before any write. Confirm on the inverter screen."
+}

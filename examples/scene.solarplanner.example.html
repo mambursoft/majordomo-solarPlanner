@@ -1,0 +1,42 @@
+<!--
+  SYNTHETIC example MajorDoMo scene fragment for Solar Planner.
+  Drop the markup into a MajorDoMo scene and bind the {#...#} tokens to the
+  SolarPlanner.* object properties. No real values are included here.
+
+  Properties used (see docs/configuration.md and the SolarPlanner namespace):
+    SolarPlanner.ControlMode, SolarPlanner.Status,
+    SolarPlanner.TargetSocAt07, SolarPlanner.ForecastPvTomorrowKwh,
+    SolarPlanner.ForecastPvTomorrowLowKwh, SolarPlanner.ForecastPvTomorrowHighKwh,
+    SolarPlanner.ForecastLoadTomorrowKwh, SolarPlanner.PlannedNightImportKwh,
+    SolarPlanner.ExpectedDayImportKwh, SolarPlanner.ExpectedFullAt,
+    SolarPlanner.ExpectedSocAt23, SolarPlanner.ExpectedCurtailmentKwh,
+    SolarPlanner.ReserveSoc, SolarPlanner.ForecastQuality,
+    SolarPlanner.ActiveProviders, SolarPlanner.PlanExplanation,
+    SolarPlanner.TouReadbackStatus, SolarPlanner.CurrentSoc
+-->
+<div class="sp-scene" style="font-family:sans-serif;max-width:760px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <h3>Solar Planner</h3>
+    <span class="label">{#SolarPlanner.ControlMode#} · {#SolarPlanner.Status#}</span>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+    <div class="card"><b>TargetSocAt07</b><div class="big">{#SolarPlanner.TargetSocAt07#}%</div>
+      <small>зараз: {#SolarPlanner.CurrentSoc#}% · резерв: {#SolarPlanner.ReserveSoc#}%</small></div>
+    <div class="card"><b>PV завтра</b><div class="big">{#SolarPlanner.ForecastPvTomorrowKwh#} кВт·год</div>
+      <small>{#SolarPlanner.ForecastPvTomorrowLowKwh#} … {#SolarPlanner.ForecastPvTomorrowHighKwh#} (сценарії)</small></div>
+    <div class="card"><b>Навантаження завтра</b><div class="big">{#SolarPlanner.ForecastLoadTomorrowKwh#} кВт·год</div>
+      <small>довіра: {#SolarPlanner.ForecastQuality#}</small></div>
+    <div class="card"><b>Нічний імпорт</b><div class="big">{#SolarPlanner.PlannedNightImportKwh#} кВт·год</div></div>
+    <div class="card"><b>Денний імпорт</b><div class="big">{#SolarPlanner.ExpectedDayImportKwh#} кВт·год</div></div>
+    <div class="card"><b>Повний заряд ~</b><div class="big">{#SolarPlanner.ExpectedFullAt#}</div>
+      <small>SOC о 23: {#SolarPlanner.ExpectedSocAt23#}%</small></div>
+  </div>
+
+  <div class="card" style="margin-top:10px;">
+    <b>Пояснення</b>
+    <p>{#SolarPlanner.PlanExplanation#}</p>
+    <small>Провайдери: {#SolarPlanner.ActiveProviders#} · Readback: {#SolarPlanner.TouReadbackStatus#}
+      · можливий надлишок: {#SolarPlanner.ExpectedCurtailmentKwh#} кВт·год</small>
+  </div>
+</div>
