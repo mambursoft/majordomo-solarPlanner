@@ -3,6 +3,31 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog; this project uses semantic versioning.
 
+## [1.0.3] - 2026-11-01
+
+### Fixed
+- The "what the modes and states mean" table rendered empty: the loop used
+  dotted keys (`[#STATES.NAME#]`) and in-loop conditionals, which the MajorDoMo
+  parser does not support. Switched to bare keys with row class and "current"
+  marker precomputed in PHP. `observe` and all other states now show.
+
+### Added
+- **Solar arrays builder**: a friendly add/remove table (name, peak kWp, tilt,
+  compass direction) that assembles the PV-arrays JSON automatically — no manual
+  JSON. Direction maps to the module azimuth convention under the hood.
+- **Property-map picker**: per-reading dropdowns of existing MajorDoMo objects
+  and their properties (properties loaded on demand via AJAX), a one-click
+  "Create SolarPlanner objects" action that provisions a `SolarPlanner` mirror
+  object with the needed properties, and a "Use mirror objects" shortcut.
+- **Deye tab access panel**: editable transport (mdm_property / modbus_tcp /
+  logger_tcp / rs485), address/IP, port, serial (masked) and firmware, plus an
+  explicit note that the module does NOT scan the network or auto-discover the
+  inverter — access is configured by hand. Answers "where are the Deye access
+  parameters defined?".
+
+### Security
+- Inverter serial is masked in the UI and preserved (not wiped) when re-saving.
+
 ## [1.0.2] - 2026-11-01
 
 ### Added

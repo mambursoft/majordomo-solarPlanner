@@ -143,6 +143,51 @@
 
   <!-- ===================== DEYE / TOU ===================== -->
   [#if VIEW_MODE=="deye"#]
+    <div class="alert alert-info">
+      <strong><#LANG_SP_DEYE_WHERE_TITLE#></strong>
+      <p style="margin:6px 0 0;"><#LANG_SP_DEYE_WHERE#></p>
+    </div>
+
+    <form method="post" action="?">
+      <input type="hidden" name="action" value="save_settings">
+      <div class="panel panel-default">
+        <div class="panel-heading"><strong><span class="glyphicon glyphicon-flash"></span> <#LANG_SP_DEYE_ACCESS_TITLE#></strong></div>
+        <div class="panel-body">
+          <div class="row">
+            <div class="col-md-3 form-group">
+              <label><#LANG_SP_DEYE_TRANSPORT_L#></label>
+              <select class="form-control" name="transport">
+                <option value="mdm_property" [#if CFG_TRANSPORT=="mdm_property"#]selected[#endif#]>mdm_property (через MajorDoMo)</option>
+                <option value="modbus_tcp" [#if CFG_TRANSPORT=="modbus_tcp"#]selected[#endif#]>modbus_tcp (порт 502)</option>
+                <option value="logger_tcp" [#if CFG_TRANSPORT=="logger_tcp"#]selected[#endif#]>logger_tcp (порт 8899)</option>
+                <option value="rs485" [#if CFG_TRANSPORT=="rs485"#]selected[#endif#]>rs485</option>
+              </select>
+              <span class="help-block" style="font-size:11px;"><#LANG_SP_H_DEYE_TRANSPORT#></span>
+            </div>
+            <div class="col-md-3 form-group">
+              <label><#LANG_SP_DEYE_HOST#></label>
+              <input class="form-control" name="deye_host" value="[#CFG_DEYE_HOST#]" placeholder="напр. 172.16.0.x">
+              <span class="help-block" style="font-size:11px;"><#LANG_SP_H_DEYE_HOST#></span>
+            </div>
+            <div class="col-md-2 form-group">
+              <label><#LANG_SP_DEYE_PORT#></label>
+              <input class="form-control" name="deye_port" value="[#CFG_DEYE_PORT#]" placeholder="502 / 8899">
+            </div>
+            <div class="col-md-2 form-group">
+              <label><#LANG_SP_DEYE_SERIAL#></label>
+              <input class="form-control" name="deye_serial" value="[#CFG_DEYE_SERIAL#]" placeholder="(приватне)">
+              <span class="help-block" style="font-size:11px;"><#LANG_SP_H_PRIVATE#></span>
+            </div>
+            <div class="col-md-2 form-group">
+              <label><#LANG_SP_FIRMWARE#></label>
+              <input class="form-control" name="firmware" value="[#CFG_FIRMWARE#]" placeholder="версія">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-success btn-sm"><span class="glyphicon glyphicon-floppy-disk"></span> <#LANG_SP_SAVE#></button>
+        </div>
+      </div>
+    </form>
+
     <div class="panel panel-default">
       <div class="panel-heading"><strong><#LANG_SP_DEYE#></strong></div>
       <div class="panel-body">
@@ -151,6 +196,7 @@
           <li><#LANG_SP_DEYE_SLOTS#></li>
           <li><#LANG_SP_DEYE_TRANSPORT#></li>
           <li><#LANG_SP_DEYE_VERIFY#></li>
+          <li><#LANG_SP_DEYE_NOSCAN#></li>
         </ul>
         <p><#LANG_SP_PROFILE_VERIFIED#>:
           [#if CFG_PROFILE_VERIFIED="1"#]<span class="label label-success">так</span>[#else#]<span class="label label-danger">ні</span>[#endif#]</p>
@@ -194,10 +240,10 @@
           </thead>
           <tbody>
           [#begin STATES#]
-            <tr [#if STATES.IS_CURRENT=="1"#]class="success"[#endif#]>
-              <td><span class="label [#STATES.BADGE#]">[#STATES.NAME#]</span>[#if STATES.IS_CURRENT=="1"#] <small class="text-success">← <#LANG_SP_STATES_NOW#></small>[#endif#]</td>
-              <td><code>[#STATES.CODE#]</code></td>
-              <td style="font-size:13px;">[#STATES.DESC#]</td>
+            <tr class="[#ROWCLASS#]">
+              <td><span class="label [#BADGE#]">[#NAME#]</span> [#NOWMARK#]</td>
+              <td><code>[#CODE#]</code></td>
+              <td style="font-size:13px;">[#DESC#]</td>
             </tr>
           [#end STATES#]
           </tbody>
@@ -366,16 +412,49 @@
             <span class="help-block" style="font-size:11px;"><#LANG_SP_H_PRIVATE#></span>
           </div>
         </div>
+        <!-- PV arrays builder (no manual JSON) -->
         <div class="row">
           <div class="col-md-12 form-group">
             <label><#LANG_SP_PV_ARRAYS#></label>
-            <textarea class="form-control" name="pv_arrays_json" rows="3" style="font-family:monospace;font-size:12px;">[#CFG_PV_ARRAYS_JSON#]</textarea>
             <span class="help-block" style="font-size:11px;"><#LANG_SP_H_PV_ARRAYS#></span>
+            <table class="table table-condensed" style="margin-bottom:6px;">
+              <thead><tr>
+                <th><#LANG_SP_PV_NAME#></th>
+                <th><#LANG_SP_PV_KWP#></th>
+                <th><#LANG_SP_PV_TILT#></th>
+                <th><#LANG_SP_PV_DIR#></th>
+                <th></th>
+              </tr></thead>
+              <tbody id="spPvRows"></tbody>
+            </table>
+            <button type="button" class="btn btn-default btn-sm" onclick="spAddPvRow()"><span class="glyphicon glyphicon-plus"></span> <#LANG_SP_PV_ADD#></button>
+            <input type="hidden" name="pv_arrays_json" id="spPvJson" value="[#CFG_PV_ARRAYS_JSON#]">
           </div>
+        </div>
+
+        <!-- Property map picker (no manual JSON) -->
+        <div class="row">
           <div class="col-md-12 form-group">
             <label><#LANG_SP_PROPERTY_MAP#></label>
-            <textarea class="form-control" name="property_map_json" rows="4" style="font-family:monospace;font-size:12px;">[#CFG_PROPERTY_MAP_JSON#]</textarea>
             <span class="help-block" style="font-size:11px;"><#LANG_SP_H_PROPERTY_MAP#></span>
+            <div style="margin-bottom:8px;">
+              [#if MIRROR_EXISTS="1"#]
+                <span class="label label-success"><#LANG_SP_MIRROR_READY#></span>
+              [#else#]
+                <span class="label label-default"><#LANG_SP_MIRROR_MISSING#></span>
+              [#endif#]
+              <a class="btn btn-info btn-sm" href="?action=create_objects"><span class="glyphicon glyphicon-wrench"></span> <#LANG_SP_CREATE_OBJECTS#></a>
+              <button type="button" class="btn btn-default btn-sm" onclick="spUseMirror()"><span class="glyphicon glyphicon-transfer"></span> <#LANG_SP_USE_MIRROR#></button>
+            </div>
+            <table class="table table-condensed">
+              <thead><tr>
+                <th style="width:40%;"><#LANG_SP_PM_FIELD#></th>
+                <th style="width:30%;"><#LANG_SP_PM_OBJECT#></th>
+                <th style="width:30%;"><#LANG_SP_PM_PROPERTY#></th>
+              </tr></thead>
+              <tbody id="spPmRows"></tbody>
+            </table>
+            <input type="hidden" name="property_map_json" id="spPmJson" value="[#CFG_PROPERTY_MAP_JSON#]">
           </div>
         </div>
         <div class="row">
@@ -406,4 +485,128 @@ function spRunPlan() {
   x.onload = function(){ try { var r = JSON.parse(x.responseText); alert(r.message || 'ok'); } catch(e){ alert('ok'); } };
   x.send();
 }
+
+// ---- data injected by the module ----
+var SP_OBJECTS = [#OBJECTS_JSON#] || [];
+var SP_PV_DATA = [#PV_ARRAYS_DATA_JSON#] || [];
+var SP_PM_DATA = [#PROPERTY_MAP_DATA_JSON#] || {};
+var SP_PM_FIELDS = [
+  ['battery_soc', 'SOC батареї (%)'],
+  ['soc_updated_utc', 'Час оновлення SOC'],
+  ['pv_power_kw', 'Потужність PV (кВт)'],
+  ['load_power_kw', 'Навантаження (кВт)'],
+  ['grid_power_kw', 'Мережа (кВт)'],
+  ['battery_power_kw', 'Потужність батареї (кВт)'],
+  ['grid_connected', 'Мережа підключена'],
+  ['inverter_alarm', 'Тривога інвертора'],
+  ['bms_charge_limit_a', 'BMS ліміт заряду (А)'],
+  ['bms_discharge_limit_a', 'BMS ліміт розряду (А)'],
+  ['grid_charge_enabled', 'Дозвіл заряду з мережі'],
+  ['tou_schedule_json', 'Поточний TOU (JSON)']
+];
+// Direction choices map to module azimuth degrees (0=N,90=E,180=S,270=W).
+var SP_DIRS = [
+  ['180','Південь (S)'], ['135','Південний схід (SE)'], ['225','Південний захід (SW)'],
+  ['90','Схід (E)'], ['270','Захід (W)'], ['0','Північ (N)'],
+  ['45','Північний схід (NE)'], ['315','Північний захід (NW)']
+];
+
+function spEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+
+// ===== PV arrays builder =====
+function spPvRowHtml(a){
+  a = a || {};
+  var az = (a.azimuth_module_deg!=null)? String(Math.round(a.azimuth_module_deg)) : '180';
+  var opts = SP_DIRS.map(function(d){ return '<option value="'+d[0]+'"'+(d[0]===az?' selected':'')+'>'+d[1]+'</option>'; }).join('');
+  // if azimuth not one of presets, add a custom option
+  if (!SP_DIRS.some(function(d){return d[0]===az;})) { opts = '<option value="'+az+'" selected>'+az+'\u00b0</option>'+opts; }
+  return '<tr>'+
+    '<td><input class="form-control input-sm sp-pv-name" value="'+spEsc(a.array_id||'')+'" placeholder="дах-південь"></td>'+
+    '<td><input class="form-control input-sm sp-pv-kwp" type="number" step="0.01" value="'+spEsc(a.kwp!=null?a.kwp:'')+'" placeholder="3.22"></td>'+
+    '<td><input class="form-control input-sm sp-pv-tilt" type="number" step="1" value="'+spEsc(a.tilt_deg!=null?a.tilt_deg:'')+'" placeholder="40"></td>'+
+    '<td><select class="form-control input-sm sp-pv-dir">'+opts+'</select></td>'+
+    '<td><button type="button" class="btn btn-danger btn-xs" onclick="this.closest(\'tr\').remove();spPvSync();"><span class="glyphicon glyphicon-trash"></span></button></td>'+
+    '</tr>';
+}
+function spAddPvRow(a){
+  var tb = document.getElementById('spPvRows'); if(!tb) return;
+  var tmp = document.createElement('tbody'); tmp.innerHTML = spPvRowHtml(a);
+  var tr = tmp.firstChild; tb.appendChild(tr);
+  tr.querySelectorAll('input,select').forEach(function(el){ el.addEventListener('change', spPvSync); el.addEventListener('keyup', spPvSync); });
+  spPvSync();
+}
+function spPvSync(){
+  var rows = document.querySelectorAll('#spPvRows tr'); var arr = [];
+  rows.forEach(function(r){
+    var name = r.querySelector('.sp-pv-name').value.trim();
+    var kwp = parseFloat(r.querySelector('.sp-pv-kwp').value);
+    var tilt = parseFloat(r.querySelector('.sp-pv-tilt').value);
+    var dir = parseFloat(r.querySelector('.sp-pv-dir').value);
+    if (!name || isNaN(kwp)) return;
+    arr.push({array_id:name, kwp:kwp, tilt_deg:isNaN(tilt)?30:tilt, azimuth_module_deg:isNaN(dir)?180:dir, dc_loss:0.14, temp_coeff_pct_per_c:-0.004});
+  });
+  document.getElementById('spPvJson').value = JSON.stringify(arr);
+}
+
+// ===== Property map picker =====
+function spObjOptions(sel){
+  var o = '<option value="">—</option>';
+  SP_OBJECTS.forEach(function(name){ o += '<option value="'+spEsc(name)+'"'+(name===sel?' selected':'')+'>'+spEsc(name)+'</option>'; });
+  if (sel && SP_OBJECTS.indexOf(sel)<0){ o += '<option value="'+spEsc(sel)+'" selected>'+spEsc(sel)+'</option>'; }
+  return o;
+}
+function spPmRender(){
+  var tb = document.getElementById('spPmRows'); if(!tb) return; tb.innerHTML='';
+  SP_PM_FIELDS.forEach(function(f){
+    var key = f[0]; var label = f[1];
+    var mapped = SP_PM_DATA[key] || '';
+    var objName = '', propName = '';
+    if (mapped.indexOf('.')>=0){ var p = mapped.split('.'); objName = p[0]; propName = p.slice(1).join('.'); }
+    var tr = document.createElement('tr');
+    tr.innerHTML = '<td>'+spEsc(label)+' <code style="font-size:10px;">'+key+'</code></td>'+
+      '<td><select class="form-control input-sm sp-pm-obj" data-key="'+key+'">'+spObjOptions(objName)+'</select></td>'+
+      '<td><select class="form-control input-sm sp-pm-prop" data-key="'+key+'"><option value="'+spEsc(propName)+'" selected>'+(propName?spEsc(propName):'—')+'</option></select></td>';
+    tb.appendChild(tr);
+    var objSel = tr.querySelector('.sp-pm-obj');
+    var propSel = tr.querySelector('.sp-pm-prop');
+    objSel.addEventListener('change', function(){ spLoadProps(objSel.value, propSel, ''); });
+    propSel.addEventListener('change', spPmSync);
+    if (objName) spLoadProps(objName, propSel, propName);
+  });
+}
+function spLoadProps(objName, propSel, selected){
+  if(!objName){ propSel.innerHTML='<option value="">—</option>'; spPmSync(); return; }
+  var x = new XMLHttpRequest();
+  x.open('GET', '?action=list_properties&ajax=1&object='+encodeURIComponent(objName), true);
+  x.onload = function(){
+    var props = []; try { props = JSON.parse(x.responseText)||[]; } catch(e){}
+    var o = '<option value="">—</option>';
+    props.forEach(function(p){ o += '<option value="'+spEsc(p)+'"'+(p===selected?' selected':'')+'>'+spEsc(p)+'</option>'; });
+    if (selected && props.indexOf(selected)<0){ o += '<option value="'+spEsc(selected)+'" selected>'+spEsc(selected)+'</option>'; }
+    propSel.innerHTML = o; spPmSync();
+  };
+  x.send();
+}
+function spPmSync(){
+  var map = {};
+  document.querySelectorAll('#spPmRows tr').forEach(function(r){
+    var objSel = r.querySelector('.sp-pm-obj'); var propSel = r.querySelector('.sp-pm-prop');
+    if (objSel && propSel && objSel.value && propSel.value){ map[objSel.dataset.key] = objSel.value+'.'+propSel.value; }
+  });
+  document.getElementById('spPmJson').value = JSON.stringify(map);
+}
+function spUseMirror(){
+  SP_PM_DATA = {battery_soc:'SolarPlanner.CurrentSoc', pv_power_kw:'SolarPlanner.PvPower',
+    load_power_kw:'SolarPlanner.LoadPower', grid_power_kw:'SolarPlanner.GridPower',
+    battery_power_kw:'SolarPlanner.BatteryPower'};
+  if (SP_OBJECTS.indexOf('SolarPlanner')<0) SP_OBJECTS.push('SolarPlanner');
+  spPmRender();
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+  if (document.getElementById('spPvRows')){
+    if (SP_PV_DATA.length) SP_PV_DATA.forEach(function(a){ spAddPvRow(a); }); else spAddPvRow();
+  }
+  if (document.getElementById('spPmRows')) spPmRender();
+});
 </script>

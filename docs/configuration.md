@@ -35,15 +35,34 @@ synthetic templates.
 
 ## PV arrays (private)
 
-`PV_ARRAYS_JSON` is a JSON array; each element:
+Use the **Solar arrays builder** on the Settings tab: add one row per group of
+panels (name, peak kWp, tilt, compass direction). The module assembles the
+JSON for you, so you never edit it by hand. Direction maps to the internal
+module azimuth convention: **0 = North, 90 = East, 180 = South, 270 = West**;
+conversion to each provider happens inside its adapter.
+
+Stored as `PV_ARRAYS_JSON`; each element looks like:
 
 ```json
 {"array_id":"roof_south","kwp":3.22,"tilt_deg":40,"azimuth_module_deg":180,
  "dc_loss":0.14,"temp_coeff_pct_per_c":-0.004}
 ```
 
-Azimuth uses the module convention: **0 = North, 90 = East, 180 = South,
-270 = West**. Conversion to each provider happens inside its adapter.
+## Deye access and network scanning
+
+All inverter access parameters are set by hand on the **Deye / TOU** tab
+(transport, address/IP, port, serial, firmware) and in the private config. The
+module **does not scan the network** and does not auto-discover the inverter —
+a deliberate choice for a 24/7 production home. Transport options:
+
+- `mdm_property` — read via existing MajorDoMo object properties (recommended
+  to start; no direct inverter connection),
+- `modbus_tcp` — Modbus TCP (port 502),
+- `logger_tcp` — Solarman logger (port 8899) — a different protocol from Modbus,
+- `rs485` — serial.
+
+Register addresses come only from a verified device profile (see
+`deye-profile-validation.md`). Writing stays off until armed mode.
 
 ## Providers
 
@@ -58,9 +77,14 @@ See `providers.md` for quota handling and licensing.
 
 ## Property map (private)
 
-`PROPERTY_MAP_JSON` maps logical telemetry fields to the MajorDoMo object
-properties your existing inverter/MQTT module already populates. A missing field
-is treated as `null`, never a silent zero.
+Use the **property-map picker** on the Settings tab: for each reading (SOC, PV
+power, load, grid, battery power, …) choose a MajorDoMo object and one of its
+properties from dropdowns. If you have no suitable objects yet, click **Create
+SolarPlanner objects** to provision a `SolarPlanner` mirror object with the
+needed properties, then use **Use mirror objects** to map against it in one
+click. A missing field is treated as `null`, never a silent zero.
+
+Stored as `PROPERTY_MAP_JSON` (logical field → `Object.property`).
 
 ## Blocking parameters
 

@@ -10,7 +10,7 @@
  * @author     mambursoft
  * @copyright  2026 mambursoft
  * @license    MIT
- * @version    1.0.2
+ * @version    1.0.3
  */
 
 require_once(dirname(__FILE__) . '/lib/autoload.php');
@@ -160,8 +160,8 @@ class solarplanner extends module
                     'REPOSITORY_URL'  => 'https://github.com/mambursoft/majordomo-solarPlanner',
                     'DESCRIPTION_RU'  => $descRu,
                     'DESCRIPTION_EN'  => $descEn,
-                    'CURRENT_VERSION' => '1.0.2',
-                    'LATEST_VERSION'  => '1.0.2',
+                    'CURRENT_VERSION' => '1.0.3',
+                    'LATEST_VERSION'  => '1.0.3',
                     'IS_INSTALLED'    => 1,
                     'LATEST_UPDATE'   => date('Y-m-d H:i:s'),
                 );
@@ -171,7 +171,7 @@ class solarplanner extends module
                 $pRec['AUTHOR']         = 'mambursoft';
                 $pRec['DESCRIPTION_RU'] = $descRu;
                 $pRec['DESCRIPTION_EN'] = $descEn;
-                $pRec['CURRENT_VERSION']= '1.0.2';
+                $pRec['CURRENT_VERSION']= '1.0.3';
                 $pRec['IS_INSTALLED']   = 1;
                 SQLUpdate('plugins', $pRec);
             }
@@ -214,6 +214,9 @@ class solarplanner extends module
             'PROFILE_VERIFIED'     => 0,
             'TRANSPORT'            => 'mdm_property',
             'FIRMWARE'             => '',
+            'DEYE_HOST'            => '',
+            'DEYE_PORT'            => '',
+            'DEYE_SERIAL'          => '',
             'LATITUDE'             => '',
             'LONGITUDE'            => '',
             'OPEN_METEO_ENABLED'   => 1,
@@ -345,6 +348,30 @@ EOD;
             exit;
         }
 
+        if ($action == 'create_objects') {
+            $res = $this->provisionMirrorObject();
+            if (isset($_REQUEST['ajax'])) {
+                header('Content-Type: application/json; charset=utf-8');
+                echo json_encode($res);
+                exit;
+            }
+            if (!empty($res['success'])) {
+                $out['SUCCESS'] = $res['message'];
+            } else {
+                $out['ERROR'] = isset($res['error']) ? $res['error'] : 'Не вдалося створити обʼєкт.';
+            }
+            $this->view_mode = 'settings';
+        }
+
+        if ($action == 'list_properties') {
+            // AJAX: return properties of a given object for the mapping picker.
+            global $object;
+            $objName = isset($_REQUEST['object']) ? trim($_REQUEST['object']) : trim($object);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode($this->listObjectProperties($objName));
+            exit;
+        }
+
         if ($action == 'set_mode') {
             global $control_mode;
             $cm = isset($_REQUEST['control_mode']) ? trim($_REQUEST['control_mode']) : trim($control_mode);
@@ -381,6 +408,7 @@ EOD;
             'ENSEMBLE_METHOD' => 'ensemble_method', 'TRANSPORT' => 'transport', 'FIRMWARE' => 'firmware',
             'LATITUDE' => 'latitude', 'LONGITUDE' => 'longitude',
             'PV_ARRAYS_JSON' => 'pv_arrays_json', 'PROPERTY_MAP_JSON' => 'property_map_json',
+            'DEYE_HOST' => 'deye_host', 'DEYE_PORT' => 'deye_port',
         );
         foreach ($map as $cfgKey => $postKey) {
             if (isset($_POST[$postKey])) {
@@ -389,7 +417,7 @@ EOD;
         }
         // Secret keys: only overwrite when a new non-masked value is supplied,
         // so re-saving the form with the masked placeholder does not wipe them.
-        foreach (array('SOLCAST_API_KEY' => 'solcast_api_key', 'FORECAST_SOLAR_API_KEY' => 'forecast_solar_api_key') as $cfgKey => $postKey) {
+        foreach (array('SOLCAST_API_KEY' => 'solcast_api_key', 'FORECAST_SOLAR_API_KEY' => 'forecast_solar_api_key', 'DEYE_SERIAL' => 'deye_serial') as $cfgKey => $postKey) {
             if (isset($_POST[$postKey])) {
                 $val = trim($_POST[$postKey]);
                 if ($val !== '' && strpos($val, '*') === false) {
@@ -444,6 +472,101 @@ EOD;
             return is_array($a) ? $a : array();
         }
         return array();
+    }
+
+    /**
+     * Create the MajorDoMo "SolarPlanner" mirror object with the telemetry
+     * properties the planner reads (CurrentSoc, PvPower, LoadPower, GridPower,
+     * BatteryPower) plus the published plan properties. Idempotent.
+     *
+     * This gives a non-specialist owner a one-click way to get valid objects to
+     * map against, without hand-writing JSON or creating objects manually.
+     */
+    function provisionMirrorObject()
+    {
+        $className = 'SolarPlanner';
+        $objName = 'SolarPlanner';
+
+        $classRec = SQLSelectOne("SELECT ID FROM classes WHERE TITLE='" . DBSafe($className) . "'");
+        if (!$classRec['ID']) {
+            $classRec = array('TITLE' => $className, 'DESCRIPTION' => 'Планувальник сонячної енергії');
+            $classRec['ID'] = SQLInsert('classes', $classRec);
+        }
+
+        $objRec = SQLSelectOne("SELECT ID FROM objects WHERE TITLE='" . DBSafe($objName) . "'");
+        if (!$objRec['ID']) {
+            $objRec = array('TITLE' => $objName, 'CLASS_ID' => $classRec['ID'], 'DESCRIPTION' => 'Solar Planner mirror');
+            $objRec['ID'] = SQLInsert('objects', $objRec);
+        }
+
+        if (!function_exists('getObject')) {
+            return array('success' => false, 'error' => 'getObject() недоступний у цьому середовищі.');
+        }
+        $obj = getObject($objName);
+        if (!$obj) {
+            return array('success' => false, 'error' => 'Не вдалося отримати обʼєкт ' . $objName);
+        }
+
+        // Telemetry mirror props (owner / another module fills these) + planner
+        // outputs (the planner writes these).
+        $props = array(
+            'CurrentSoc' => '', 'PvPower' => '', 'LoadPower' => '', 'GridPower' => '', 'BatteryPower' => '',
+            'Enabled' => '1', 'ControlMode' => 'shadow', 'Status' => 'observe',
+            'TargetSocAt07' => '', 'PlannedGridChargeKwh' => '', 'PlannedNightImportKwh' => '',
+            'ExpectedDayImportKwh' => '', 'ForecastPvTomorrowKwh' => '', 'ForecastLoadTomorrowKwh' => '',
+            'PlanExplanation' => '',
+        );
+        $created = 0;
+        foreach ($props as $pName => $pDef) {
+            $cur = $obj->getProperty($pName);
+            if ($cur === false || $cur === null) {
+                $obj->setProperty($pName, $pDef);
+                $created++;
+            }
+        }
+
+        return array(
+            'success' => true,
+            'message' => 'Обʼєкт "SolarPlanner" готовий (' . $created . ' нових властивостей). Тепер у мапінгу можна вибрати SolarPlanner.* або натиснути «Використати дзеркальні обʼєкти».',
+            'object' => $objName,
+        );
+    }
+
+    /** List MajorDoMo objects (TITLE) for the picker dropdowns. */
+    private function listObjects()
+    {
+        $rows = SQLSelect("SELECT TITLE FROM objects ORDER BY TITLE ASC");
+        $out = array();
+        if (is_array($rows)) {
+            foreach ($rows as $r) {
+                if (!empty($r['TITLE'])) {
+                    $out[] = $r['TITLE'];
+                }
+            }
+        }
+        return $out;
+    }
+
+    /** AJAX helper: list property names of one object for the mapping picker. */
+    private function listObjectProperties($objName)
+    {
+        if ($objName === '') {
+            return array();
+        }
+        $objRec = SQLSelectOne("SELECT ID FROM objects WHERE TITLE='" . DBSafe($objName) . "'");
+        if (!$objRec || !$objRec['ID']) {
+            return array();
+        }
+        $rows = SQLSelect("SELECT TITLE FROM properties WHERE OBJECT_ID=" . (int)$objRec['ID'] . " ORDER BY TITLE ASC");
+        $out = array();
+        if (is_array($rows)) {
+            foreach ($rows as $r) {
+                if (!empty($r['TITLE'])) {
+                    $out[] = $r['TITLE'];
+                }
+            }
+        }
+        return $out;
     }
 
     /**
@@ -549,15 +672,19 @@ EOD;
         $out['CONTROL_MODE_DESC']  = isset($states[$controlMode]) ? $states[$controlMode]['desc'] : '';
         $out['ALLOWED_MODE_LABEL'] = isset($states[$allowed]) ? $states[$allowed]['name'] : $allowed;
 
-        // Full reference table for the Safety tab.
+        // Full reference table for the Safety tab. Precompute row class and the
+        // "current" marker so the template needs no conditionals inside the loop.
+        $nowWord = defined('LANG_SP_STATES_NOW') ? LANG_SP_STATES_NOW : 'current';
         $stateRows = array();
         foreach ($states as $code => $info) {
+            $isCurrent = ($code === $controlMode);
             $stateRows[] = array(
                 'CODE' => $code,
                 'NAME' => htmlspecialchars($info['name']),
                 'DESC' => htmlspecialchars($info['desc']),
                 'BADGE' => $info['badge'],
-                'IS_CURRENT' => ($code === $controlMode) ? 1 : 0,
+                'ROWCLASS' => $isCurrent ? 'success' : '',
+                'NOWMARK' => $isCurrent ? '<small class="text-success">&larr; ' . htmlspecialchars($nowWord) . '</small>' : '',
             );
         }
         $out['STATES'] = $stateRows;
@@ -570,6 +697,7 @@ EOD;
         }
         $out['CFG_SOLCAST_API_KEY'] = !empty($this->config['SOLCAST_API_KEY']) ? '********' : '';
         $out['CFG_FORECAST_SOLAR_API_KEY'] = !empty($this->config['FORECAST_SOLAR_API_KEY']) ? '********' : '';
+        $out['CFG_DEYE_SERIAL'] = !empty($this->config['DEYE_SERIAL']) ? '********' : '';
 
         // Blocking parameters list for the UI.
         $blkList = array();
@@ -578,6 +706,22 @@ EOD;
         }
         $out['BLOCKING_PARAMS'] = $blkList;
         $out['HAS_BLOCKING'] = empty($blkList) ? 0 : 1;
+
+        // Objects list for the property-map picker (as a JS array).
+        $out['OBJECTS_JSON'] = json_encode($this->listObjects());
+
+        // Current PV arrays (decoded) for the friendly builder, as JS data.
+        $pvArrays = $this->loadPvArrays();
+        $out['PV_ARRAYS_DATA_JSON'] = json_encode(array_values($pvArrays));
+
+        // Current property map (decoded) for the picker, as JS data.
+        $pmRaw = isset($this->config['PROPERTY_MAP_JSON']) ? $this->config['PROPERTY_MAP_JSON'] : '';
+        $pm = $pmRaw ? json_decode($pmRaw, true) : array();
+        $out['PROPERTY_MAP_DATA_JSON'] = json_encode(is_array($pm) ? $pm : array());
+
+        // Whether the SolarPlanner mirror object exists already.
+        $mirror = SQLSelectOne("SELECT ID FROM objects WHERE TITLE='SolarPlanner'");
+        $out['MIRROR_EXISTS'] = ($mirror && $mirror['ID']) ? 1 : 0;
 
         // Last planning run.
         if (SQLSelectOne("SHOW TABLES LIKE 'solarplanner_planning_runs'")) {
