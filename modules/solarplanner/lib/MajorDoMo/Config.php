@@ -23,17 +23,20 @@ class Config
     public static function blockingParameters(array $cfg)
     {
         $blocking = array();
+        // These gate ARMED (real inverter writes). With the shipped defaults most
+        // are already satisfied, so a fresh install runs in shadow immediately;
+        // only the genuinely site/hardware-specific items remain to confirm.
         $need = array(
-            'battery_count' => 'Кількість батарей',
-            'battery_capacity_kwh' => 'Доступна ємність',
+            'battery_count' => 'Кількість батарей (підтвердити 2/3)',
+            'battery_capacity_kwh' => 'Доступна ємність (підтвердити за паспортом/BMS)',
             'reserve_soc_pct' => 'Аварійний резерв',
             'tariff_cheap_price' => 'Ціна пільгового тарифу',
             'tariff_day_price' => 'Ціна денного тарифу',
             'transport' => 'Транспорт Deye',
-            'firmware' => 'Прошивка (для профілю)',
-            'property_map' => 'Мапінг властивостей',
-            'pv_arrays' => 'PV-масиви',
-            'profile_verified' => 'Перевірений device profile',
+            'firmware' => 'Прошивка інвертора (для device profile)',
+            'property_map' => 'Мапінг властивостей MajorDoMo',
+            'pv_arrays' => 'PV-масиви (kWp, нахил, азимут)',
+            'profile_verified' => 'Перевірений device profile (обовʼязково для armed)',
         );
         foreach ($need as $key => $label) {
             if (!isset($cfg[$key]) || $cfg[$key] === '' || $cfg[$key] === null

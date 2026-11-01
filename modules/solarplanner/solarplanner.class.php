@@ -10,7 +10,7 @@
  * @author     mambursoft
  * @copyright  2026 mambursoft
  * @license    MIT
- * @version    1.0.0
+ * @version    1.0.1
  */
 
 require_once(dirname(__FILE__) . '/lib/autoload.php');
@@ -121,6 +121,26 @@ class solarplanner extends module
             }
         }
 
+        // Provision the module icon into the web root /img/modules/ so the UI
+        // header and module list can show it even if the package extractor did
+        // not place it there directly.
+        if (defined('ROOT')) {
+            $dstDir = ROOT . 'img/modules/';
+            if (!is_dir($dstDir)) {
+                @mkdir($dstDir, 0775, true);
+            }
+            $srcIcon = DIR_MODULES . $this->name . '/../../img/modules/' . $this->name . '.png';
+            $srcIconAlt = ROOT . 'modules/' . $this->name . '/img/' . $this->name . '.png';
+            $dstIcon = $dstDir . $this->name . '.png';
+            if (!file_exists($dstIcon)) {
+                if (file_exists($srcIcon)) {
+                    @copy($srcIcon, $dstIcon);
+                } elseif (file_exists($srcIconAlt)) {
+                    @copy($srcIconAlt, $dstIcon);
+                }
+            }
+        }
+
         // Register in plugins table for Marketplace & Installed extensions.
         $hasPlugins = SQLSelectOne("SHOW TABLES LIKE 'plugins'");
         if ($hasPlugins) {
@@ -140,8 +160,8 @@ class solarplanner extends module
                     'REPOSITORY_URL'  => 'https://github.com/mambursoft/majordomo-solarPlanner',
                     'DESCRIPTION_RU'  => $descRu,
                     'DESCRIPTION_EN'  => $descEn,
-                    'CURRENT_VERSION' => '1.0.0',
-                    'LATEST_VERSION'  => '1.0.0',
+                    'CURRENT_VERSION' => '1.0.1',
+                    'LATEST_VERSION'  => '1.0.1',
                     'IS_INSTALLED'    => 1,
                     'LATEST_UPDATE'   => date('Y-m-d H:i:s'),
                 );
@@ -151,7 +171,7 @@ class solarplanner extends module
                 $pRec['AUTHOR']         = 'mambursoft';
                 $pRec['DESCRIPTION_RU'] = $descRu;
                 $pRec['DESCRIPTION_EN'] = $descEn;
-                $pRec['CURRENT_VERSION']= '1.0.0';
+                $pRec['CURRENT_VERSION']= '1.0.1';
                 $pRec['IS_INSTALLED']   = 1;
                 SQLUpdate('plugins', $pRec);
             }
@@ -164,8 +184,12 @@ class solarplanner extends module
         parent::install();
 
         $this->getConfig();
-        // Safe defaults. Reserve is intentionally NOT 0; armed stays blocked
-        // until the owner confirms the open parameters.
+        // Realistic, safe defaults so the module is usable out-of-the-box in
+        // observe/shadow. These are typical values for the documented reference
+        // installation (Deye SUN-15K-SG05LP3, 3x RW-F10.6, ~3.2 kWp south@40).
+        // They are starting points to review, NOT confirmed site parameters.
+        // Reserve is intentionally NOT 0. 'armed' still stays blocked until the
+        // device profile is verified (see Config::blockingParameters()).
         $defaults = array(
             'CONTROL_MODE'         => 'shadow',   // observe | shadow | armed (never armed by default)
             'TIMEZONE'             => 'Europe/Kyiv',
@@ -174,21 +198,21 @@ class solarplanner extends module
             'CHEAP_START_HOUR'     => 23,
             'CHEAP_END_HOUR'       => 7,
             'RESERVE_SOC_PCT'      => 20,
-            'BATTERY_COUNT'        => 0,
-            'BATTERY_CAPACITY_KWH' => 0,
+            'BATTERY_COUNT'        => 3,          // 3x Deye RW-F10.6 (confirm!)
+            'BATTERY_CAPACITY_KWH' => 30.0,       // ~3 x ~10 kWh usable (confirm!)
             'MAX_SOC_PCT'          => 100,
             'MIN_SOC_PCT'          => 10,
-            'MAX_CHARGE_KW'        => 5,
-            'MAX_DISCHARGE_KW'     => 5,
+            'MAX_CHARGE_KW'        => 7.0,         // conservative for a 15K hybrid
+            'MAX_DISCHARGE_KW'     => 7.0,
             'ETA_CHARGE'           => 0.95,
             'ETA_DISCHARGE'        => 0.95,
-            'TARIFF_CHEAP_PRICE'   => 0,
-            'TARIFF_DAY_PRICE'     => 0,
+            'TARIFF_CHEAP_PRICE'   => 2.64,       // UA night tariff example (UAH/kWh)
+            'TARIFF_DAY_PRICE'     => 4.32,       // UA day tariff example (UAH/kWh)
             'ALLOW_EXPORT'         => 0,
             'SOC_STEP_PCT'         => 5,
             'ENSEMBLE_METHOD'      => 'median',
             'PROFILE_VERIFIED'     => 0,
-            'TRANSPORT'            => '',
+            'TRANSPORT'            => 'mdm_property',
             'FIRMWARE'             => '',
             'LATITUDE'             => '',
             'LONGITUDE'            => '',
@@ -197,8 +221,16 @@ class solarplanner extends module
             'SOLCAST_ENABLED'      => 0,
             'SOLCAST_API_KEY'      => '',
             'FORECAST_SOLAR_API_KEY' => '',
+            'SOLCAST_RESOURCE_IDS' => '',
             'SOLCAST_RESERVED_UNITS' => 2,
+            'ANNOUNCE_PLAN'        => 0,
             'DATA_DIR'             => '',
+            // A representative single south-facing array so Open-Meteo returns a
+            // plausible PV curve immediately. Replace with real arrays.
+            'PV_ARRAYS_JSON'       => '[{"array_id":"roof_south","kwp":3.22,"tilt_deg":40,"azimuth_module_deg":180,"dc_loss":0.14,"temp_coeff_pct_per_c":-0.004}]',
+            // Default property map points at SolarPlanner.* mirror properties so
+            // telemetry has somewhere to read from until mapped to the real module.
+            'PROPERTY_MAP_JSON'    => '{"battery_soc":"SolarPlanner.CurrentSoc","pv_power_kw":"SolarPlanner.PvPower","load_power_kw":"SolarPlanner.LoadPower","grid_power_kw":"SolarPlanner.GridPower","battery_power_kw":"SolarPlanner.BatteryPower"}',
         );
         foreach ($defaults as $k => $v) {
             if (!isset($this->config[$k])) {
@@ -348,11 +380,32 @@ EOD;
             'TARIFF_DAY_PRICE' => 'tariff_day_price', 'SOC_STEP_PCT' => 'soc_step_pct',
             'ENSEMBLE_METHOD' => 'ensemble_method', 'TRANSPORT' => 'transport', 'FIRMWARE' => 'firmware',
             'LATITUDE' => 'latitude', 'LONGITUDE' => 'longitude',
-            'SOLCAST_API_KEY' => 'solcast_api_key', 'FORECAST_SOLAR_API_KEY' => 'forecast_solar_api_key',
+            'PV_ARRAYS_JSON' => 'pv_arrays_json', 'PROPERTY_MAP_JSON' => 'property_map_json',
         );
         foreach ($map as $cfgKey => $postKey) {
             if (isset($_POST[$postKey])) {
                 $this->config[$cfgKey] = trim($_POST[$postKey]);
+            }
+        }
+        // Secret keys: only overwrite when a new non-masked value is supplied,
+        // so re-saving the form with the masked placeholder does not wipe them.
+        foreach (array('SOLCAST_API_KEY' => 'solcast_api_key', 'FORECAST_SOLAR_API_KEY' => 'forecast_solar_api_key') as $cfgKey => $postKey) {
+            if (isset($_POST[$postKey])) {
+                $val = trim($_POST[$postKey]);
+                if ($val !== '' && strpos($val, '*') === false) {
+                    $this->config[$cfgKey] = $val;
+                }
+            }
+        }
+        // Validate JSON fields; on parse error keep the previous value and warn.
+        foreach (array('PV_ARRAYS_JSON', 'PROPERTY_MAP_JSON') as $jsonKey) {
+            if (isset($this->config[$jsonKey]) && $this->config[$jsonKey] !== '') {
+                $decoded = json_decode($this->config[$jsonKey], true);
+                if ($decoded === null && json_last_error() !== JSON_ERROR_NONE) {
+                    $out['ERROR'] = 'Некоректний JSON у полі ' . $jsonKey . ' — зміну не збережено.';
+                    unset($this->config[$jsonKey]);
+                    $this->getConfig(); // reload to drop the bad value
+                }
             }
         }
         foreach (array('ALLOW_EXPORT' => 'allow_export', 'OPEN_METEO_ENABLED' => 'open_meteo_enabled',
@@ -377,7 +430,7 @@ EOD;
             'tariff_day_price' => isset($c['TARIFF_DAY_PRICE']) ? $c['TARIFF_DAY_PRICE'] : '',
             'transport' => isset($c['TRANSPORT']) ? $c['TRANSPORT'] : '',
             'firmware' => isset($c['FIRMWARE']) ? $c['FIRMWARE'] : '',
-            'property_map' => SQLSelectOne("SHOW TABLES LIKE 'solarplanner_telemetry'") ? 'db' : '',
+            'property_map' => !empty($c['PROPERTY_MAP_JSON']) ? $c['PROPERTY_MAP_JSON'] : '',
             'pv_arrays' => $this->loadPvArrays(),
             'profile_verified' => isset($c['PROFILE_VERIFIED']) ? (int)$c['PROFILE_VERIFIED'] : 0,
         );
@@ -423,14 +476,14 @@ EOD;
         $out['ALLOWED_MODE']   = $allowed;
         $out['ARMED_BLOCKED']  = ($allowed !== 'armed') ? 1 : 0;
 
-        // Settings (secrets masked for display).
+        // Settings for the form. API keys are shown masked (never echo the real
+        // key); coordinates ARE shown to the owner in their own protected
+        // settings form (they are only kept out of Git/logs/snapshots).
         foreach ($this->config as $k => $v) {
             $out['CFG_' . $k] = is_scalar($v) ? htmlspecialchars((string)$v) : '';
         }
         $out['CFG_SOLCAST_API_KEY'] = !empty($this->config['SOLCAST_API_KEY']) ? '********' : '';
         $out['CFG_FORECAST_SOLAR_API_KEY'] = !empty($this->config['FORECAST_SOLAR_API_KEY']) ? '********' : '';
-        $out['CFG_LATITUDE'] = !empty($this->config['LATITUDE']) ? '***' : '';
-        $out['CFG_LONGITUDE'] = !empty($this->config['LONGITUDE']) ? '***' : '';
 
         // Blocking parameters list for the UI.
         $blkList = array();
