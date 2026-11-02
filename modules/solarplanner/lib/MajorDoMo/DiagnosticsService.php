@@ -42,6 +42,8 @@ class DiagnosticsService
     private $cache;
     /** @var callable|null getter for MajorDoMo properties (gg wrapper) */
     private $propGetter;
+    /** @var float|null wall-clock deadline (epoch seconds) for a collect pass */
+    private $deadline = null;
 
     /**
      * @param array $cfg module config
@@ -113,7 +115,19 @@ class DiagnosticsService
         $site = $this->resolveSite();
         $env = $this->environment($fromUtc, $toUtc, $site);
 
-        $http = new HttpClient(15, 2, false);
+        // Tight, bounded HTTP budget so a single slow / rate-limited provider
+        // cannot stall the background cycle. connect<=5s, total<=8s, one retry,
+        // and 429 is surfaced immediately (never retried). A whole collect pass
+        // is additionally capped by a wall-clock deadline below.
+        $http = new HttpClient(8, 1, false, 5, false);
+
+        // Overall deadline for the entire collection. Providers still pending
+        // when the budget is spent are skipped with a clear reason; the plan is
+        // then built from whatever forecasts did arrive (partial is fine).
+        $collectBudgetSec = isset($cfg['FETCH_BUDGET_SEC']) ? max(8, (int)$cfg['FETCH_BUDGET_SEC']) : 20;
+        $deadline = microtime(true) + $collectBudgetSec;
+        $this->deadline = $deadline;
+
         $quota = new QuotaManager();
         $pv = new PvModel($site['arrays'], 0.0);
 
@@ -241,6 +255,30 @@ class DiagnosticsService
             }
             // cache missing/stale but not due -> still fetch to avoid going blind.
             $doFetch = true;
+        }
+
+        // Respect the overall collection deadline: if the budget is already
+        // spent (a previous provider was slow), do not start another network
+        // request. Prefer a still-usable cached run; otherwise report clearly.
+        if ($this->deadline !== null && microtime(true) >= $this->deadline) {
+            if ($this->cache) {
+                $entry = $this->cache->get($providerId, $now);
+                if ($entry && $entry['fresh']) {
+                    $row = $this->cachedRow($providerId, $entry, $runs, $weatherModel, $sched);
+                    $row['status'] = 'cached';
+                    $row['detail'] = 'Пропущено (вичерпано ліміт часу збору), використано кеш (' . $this->ageText($entry['age_sec']) . ').';
+                    return $row;
+                }
+            }
+            return array(
+                'enabled' => 1,
+                'status' => 'skipped',
+                'detail' => 'Пропущено: вичерпано ліміт часу збору прогнозів (інший провайдер відповідав надто довго).',
+                'total_kwh' => null,
+                'intervals' => 0,
+                'source' => 'live',
+                'next_fetch_utc' => $sched['next_utc'],
+            );
         }
 
         $r = call_user_func($fetchFn);
@@ -404,7 +442,9 @@ class DiagnosticsService
      */
     public function outboundProbe()
     {
-        $http = new HttpClient(10, 1, false);
+        // Fast, bounded probe: connect<=4s, total<=6s, no retries. This only
+        // needs to answer "is the network up?", so it must never block the plan.
+        $http = new HttpClient(6, 0, false, 4, false);
         $targets = array(
             'open_meteo' => 'https://api.open-meteo.com/v1/forecast?latitude=50&longitude=30&hourly=temperature_2m&forecast_days=1&timeformat=unixtime',
             'forecast_solar' => 'https://api.forecast.solar/estimate/50/30/40/0/3',

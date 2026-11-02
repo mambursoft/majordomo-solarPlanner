@@ -3,6 +3,30 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog; this project uses semantic versioning.
 
+## [1.0.8] - 2026-11-02
+
+### Fixed
+- **Background cycle produced a permanent `no_forecast` and could hang.** On the
+  live RPi4 the plan run blocked for 90s+ and never finished, so the module
+  showed "Цикл остановлен" / no forecast even though the cycle process and its
+  heartbeat were alive. Root cause: forecast collection had no overall time
+  budget and the HTTP client *retried* HTTP 429 (rate limit) responses. When a
+  provider throttled hard (Solcast home tier, and Forecast.Solar's ~12 req/h per
+  IP), each retry waited out the full per-request timeout, stacking up to several
+  minutes per plan — longer than a cycle iteration, so nothing was ever cached.
+  - `HttpClient` no longer retries a 429 by default (a rate limit is a definitive
+    answer, not a transient glitch); it is surfaced immediately. Retrying 429 only
+    wasted time and burned quota. Added an explicit `$retryOn429` opt-in and a
+    configurable connect timeout.
+  - Provider fetches now use a tight budget (connect ≤ 5s, total ≤ 8s, one retry);
+    the outbound internet probe uses an even tighter, retry-free budget (≤ 6s).
+  - `DiagnosticsService::collect()` now enforces an overall wall-clock deadline
+    (default 20s, `FETCH_BUDGET_SEC`). A provider still pending when the budget is
+    spent is skipped with a clear reason and the plan is built from whatever
+    forecasts did arrive — one working provider is enough. Verified on the live
+    PHP 7.3.31 host: a full plan run now completes in ~1.3s and returns
+    `status=feasible` instead of hanging.
+
 ## [1.0.7] - 2026-11-02
 
 ### Fixed

@@ -22,12 +22,25 @@ class HttpClient
     private $timeout;
     private $maxRetries;
     private $allowPrivate;
+    private $connectTimeout;
+    private $retryOn429;
 
-    public function __construct($timeout = 15, $maxRetries = 2, $allowPrivate = false)
+    /**
+     * @param int  $timeout        total per-request timeout (seconds)
+     * @param int  $maxRetries     retries on transient errors (0/5xx, and 429 only if $retryOn429)
+     * @param bool $allowPrivate   allow http/private hosts (SSRF guard relaxation)
+     * @param int  $connectTimeout TCP+TLS connect timeout (seconds); defaults to min(5, timeout)
+     * @param bool $retryOn429     retry when rate-limited. Default false: retrying a 429 only
+     *                             wastes time and burns quota, and can stall a background cycle
+     *                             when a provider throttles hard (seen with Solcast home tier).
+     */
+    public function __construct($timeout = 15, $maxRetries = 2, $allowPrivate = false, $connectTimeout = null, $retryOn429 = false)
     {
         $this->timeout = (int)$timeout;
         $this->maxRetries = (int)$maxRetries;
         $this->allowPrivate = (bool)$allowPrivate;
+        $this->connectTimeout = $connectTimeout === null ? min(5, $this->timeout) : (int)$connectTimeout;
+        $this->retryOn429 = (bool)$retryOn429;
     }
 
     /**
@@ -49,6 +62,12 @@ class HttpClient
         while ($attempt <= $this->maxRetries) {
             $res = $this->doGet($url, $headers);
             $status = $res['status'];
+            // A rate-limit is a definitive answer, not a transient glitch: by
+            // default surface it immediately instead of retrying (retries only
+            // waste time/quota and can stall a background cycle).
+            if ($status === 429 && !$this->retryOn429) {
+                return $res;
+            }
             // Retry only on transient conditions.
             if ($status === 429 || ($status >= 500 && $status < 600) || $status === 0) {
                 $lastErr = $res['error'] ?: ('HTTP ' . $status);
@@ -118,7 +137,7 @@ class HttpClient
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_TIMEOUT => $this->timeout,
-            CURLOPT_CONNECTTIMEOUT => min(10, $this->timeout),
+            CURLOPT_CONNECTTIMEOUT => $this->connectTimeout,
             CURLOPT_HTTPHEADER => $hdr,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
