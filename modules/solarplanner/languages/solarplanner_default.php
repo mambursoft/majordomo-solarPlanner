@@ -162,6 +162,10 @@ $dictionary = array(
     'SP_DIAG_COL_PROV'      => 'Provider',
     'SP_DIAG_COL_RESULT'    => 'Result',
     'SP_DIAG_RUNPLAN_HINT'  => 'Compute the plan now and see the result immediately (shadow mode writes nothing to the inverter).',
+
+    'SP_SOLCAST_RES'    => 'Solcast resource_id',
+    'SP_SOLCAST_FETCH'  => 'Fetch resources',
+    'SP_H_SOLCAST_RES'  => 'Solcast rooftop resource ids, comma-separated. Save the API key and click "Fetch resources" to fill them automatically.',
 );
 
 foreach ($dictionary as $k => $v) {

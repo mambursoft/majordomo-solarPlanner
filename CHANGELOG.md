@@ -3,6 +3,25 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog; this project uses semantic versioning.
 
+## [1.0.5] - 2026-11-02
+
+### Fixed
+- Diagnostics no longer mislabels "no internet" when only Open-Meteo is down.
+  The outbound probe now tries several independent hosts (Open-Meteo,
+  Forecast.Solar, Cloudflare) and reports per-host results; internet is "up" if
+  any host answers. This matched a real case where the host received HTTP 503
+  from Open-Meteo while Forecast.Solar worked.
+- A partial (short-horizon) forecast from a single provider now reliably yields
+  a plan instead of degrading to no_forecast (covered by a new integration
+  test). Open-Meteo 503/429 are shown as temporary and do not block the plan.
+
+### Added
+- **Solcast resource auto-fill**: a resource_id field plus a "Fetch resources"
+  button that calls the Solcast rooftop_sites API with the saved key and fills
+  SOLCAST_RESOURCE_IDS automatically, then enables Solcast. No manual id lookup.
+- Clearer Ukrainian provider-result messages distinguishing a temporary 503/429
+  from a domain being unreachable while other providers work.
+
 ## [1.0.4] - 2026-11-02
 
 ### Fixed

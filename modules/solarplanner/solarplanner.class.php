@@ -10,7 +10,7 @@
  * @author     mambursoft
  * @copyright  2026 mambursoft
  * @license    MIT
- * @version    1.0.4
+ * @version    1.0.5
  */
 
 require_once(dirname(__FILE__) . '/lib/autoload.php');
@@ -160,8 +160,8 @@ class solarplanner extends module
                     'REPOSITORY_URL'  => 'https://github.com/mambursoft/majordomo-solarPlanner',
                     'DESCRIPTION_RU'  => $descRu,
                     'DESCRIPTION_EN'  => $descEn,
-                    'CURRENT_VERSION' => '1.0.4',
-                    'LATEST_VERSION'  => '1.0.4',
+                    'CURRENT_VERSION' => '1.0.5',
+                    'LATEST_VERSION'  => '1.0.5',
                     'IS_INSTALLED'    => 1,
                     'LATEST_UPDATE'   => date('Y-m-d H:i:s'),
                 );
@@ -171,7 +171,7 @@ class solarplanner extends module
                 $pRec['AUTHOR']         = 'mambursoft';
                 $pRec['DESCRIPTION_RU'] = $descRu;
                 $pRec['DESCRIPTION_EN'] = $descEn;
-                $pRec['CURRENT_VERSION']= '1.0.4';
+                $pRec['CURRENT_VERSION']= '1.0.5';
                 $pRec['IS_INSTALLED']   = 1;
                 SQLUpdate('plugins', $pRec);
             }
@@ -370,6 +370,16 @@ EOD;
             exit;
         }
 
+        if ($action == 'fetch_solcast') {
+            $res = $this->fetchSolcastResources();
+            if (!empty($res['success'])) {
+                $out['SUCCESS'] = $res['message'];
+            } else {
+                $out['ERROR'] = isset($res['error']) ? $res['error'] : 'Не вдалося отримати ресурси Solcast.';
+            }
+            $this->view_mode = 'settings';
+        }
+
         if ($action == 'list_properties') {
             // AJAX: return properties of a given object for the mapping picker.
             global $object;
@@ -416,6 +426,7 @@ EOD;
             'LATITUDE' => 'latitude', 'LONGITUDE' => 'longitude',
             'PV_ARRAYS_JSON' => 'pv_arrays_json', 'PROPERTY_MAP_JSON' => 'property_map_json',
             'DEYE_HOST' => 'deye_host', 'DEYE_PORT' => 'deye_port',
+            'SOLCAST_RESOURCE_IDS' => 'solcast_resource_ids',
         );
         foreach ($map as $cfgKey => $postKey) {
             if (isset($_POST[$postKey])) {
@@ -570,6 +581,57 @@ EOD;
             'providers' => $collected['providers'],
             'environment' => $collected['env'],
             'site' => $collected['site'],
+        );
+    }
+
+    /**
+     * Fetch the owner's Solcast rooftop resources using the saved API key and
+     * auto-fill SOLCAST_RESOURCE_IDS, so the owner never has to find/paste the
+     * resource id by hand. Nothing is printed except counts (no key leakage).
+     */
+    function fetchSolcastResources()
+    {
+        $this->getConfig();
+        $key = isset($this->config['SOLCAST_API_KEY']) ? trim($this->config['SOLCAST_API_KEY']) : '';
+        if ($key === '') {
+            return array('success' => false, 'error' => 'Спочатку збережіть Solcast API key у налаштуваннях.');
+        }
+        require_once(dirname(__FILE__) . '/lib/Forecast/HttpClient.php');
+        $http = new \SolarPlanner\Forecast\HttpClient(15, 1, false);
+        $url = 'https://api.solcast.com.au/rooftop_sites?format=json';
+        $guard = $http->guardUrl($url);
+        if ($guard !== true) {
+            return array('success' => false, 'error' => 'SSRF-захист: ' . $guard);
+        }
+        $res = $http->get($url, array('Authorization' => 'Bearer ' . $key, 'Accept' => 'application/json'));
+        if ($res['status'] === 401 || $res['status'] === 403) {
+            return array('success' => false, 'error' => 'Solcast відхилив ключ (HTTP ' . $res['status'] . '). Перевірте API key.');
+        }
+        if ($res['status'] !== 200) {
+            return array('success' => false, 'error' => 'Solcast повернув HTTP ' . $res['status'] . '.');
+        }
+        $data = json_decode($res['body'], true);
+        if (!isset($data['sites']) || !is_array($data['sites']) || empty($data['sites'])) {
+            return array('success' => false, 'error' => 'За цим ключем не знайдено жодного rooftop site.');
+        }
+        $ids = array();
+        $names = array();
+        foreach ($data['sites'] as $s) {
+            if (!empty($s['resource_id'])) {
+                $ids[] = $s['resource_id'];
+                $names[] = isset($s['name']) ? $s['name'] : $s['resource_id'];
+            }
+        }
+        if (empty($ids)) {
+            return array('success' => false, 'error' => 'Відповідь без resource_id.');
+        }
+        $this->config['SOLCAST_RESOURCE_IDS'] = implode(',', $ids);
+        $this->config['SOLCAST_ENABLED'] = 1;
+        $this->saveConfig();
+        setGlobal('cycle_solarplannerControl', 'restart');
+        return array(
+            'success' => true,
+            'message' => 'Знайдено ' . count($ids) . ' resource_id (' . htmlspecialchars(implode(', ', $names)) . '). Solcast увімкнено.',
         );
     }
 

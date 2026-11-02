@@ -199,8 +199,14 @@ class DiagnosticsService
             case 'missing':
                 return 'Пропущено: ' . $detail;
             case 'unusable':
+                if ($detail === 'http 503' || $detail === 'http 429') {
+                    return 'Провайдер тимчасово недоступний (' . $detail . '). Зачекайте — планувальник використає інші джерела; повтор буде автоматично.';
+                }
+                if ($detail === 'http 0') {
+                    return 'Немає відповіді від сервера провайдера. Якщо інші провайдери працюють — проблема саме в цьому домені (можливо, фаєрвол/проксі або регіональне блокування).';
+                }
                 if (strpos($detail, 'http') === 0) {
-                    return 'Сервер провайдера повернув помилку (' . $detail . '). Перевірте вихідний доступ до інтернету.';
+                    return 'Сервер провайдера повернув помилку (' . $detail . ').';
                 }
                 if (strpos($detail, 'ssrf') === 0) {
                     return 'Запит заблоковано SSRF-захистом: ' . $detail;
@@ -251,26 +257,57 @@ class DiagnosticsService
         );
     }
 
-    /** Minimal live outbound HTTPS probe to Open-Meteo. */
+    /**
+     * Live outbound HTTPS probe. Tries several independent hosts so that one
+     * provider being down (e.g. Open-Meteo returning 503 to this edge) is NOT
+     * mistaken for "no internet". Internet is considered up if ANY host answers;
+     * per-host results are reported so the real culprit is visible.
+     */
     public function outboundProbe()
     {
         $http = new HttpClient(10, 1, false);
-        $url = 'https://api.open-meteo.com/v1/forecast?latitude=50&longitude=30&hourly=temperature_2m&forecast_days=1&timeformat=unixtime';
-        $guard = $http->guardUrl($url);
-        if ($guard !== true) {
-            return array('ok' => false, 'detail' => 'SSRF-захист: ' . $guard);
-        }
-        $res = $http->get($url);
-        if ($res['status'] === 200 && strpos($res['body'], 'hourly') !== false) {
-            return array('ok' => true, 'detail' => 'Вихідний HTTPS працює (Open-Meteo відповів 200).');
-        }
-        if ($res['status'] === 0) {
-            $err = $res['error'] ? $res['error'] : 'таймаут/DNS/блокування';
-            if (stripos($err, 'certificate') !== false || stripos($err, 'issuer') !== false || stripos($err, 'ssl') !== false) {
-                $err .= ' — не налаштовано кореневі сертифікати (CA). На Raspbian: sudo apt-get install ca-certificates, або вкажіть curl.cainfo у php.ini.';
+        $targets = array(
+            'open_meteo' => 'https://api.open-meteo.com/v1/forecast?latitude=50&longitude=30&hourly=temperature_2m&forecast_days=1&timeformat=unixtime',
+            'forecast_solar' => 'https://api.forecast.solar/estimate/50/30/40/0/3',
+            'cloudflare' => 'https://cloudflare.com/cdn-cgi/trace',
+        );
+        $perHost = array();
+        $anyOk = false;
+        $sslIssue = false;
+        foreach ($targets as $name => $url) {
+            $guard = $http->guardUrl($url);
+            if ($guard !== true) {
+                $perHost[$name] = 'SSRF: ' . $guard;
+                continue;
             }
-            return array('ok' => false, 'detail' => 'Немає вихідного зʼєднання: ' . $err);
+            $res = $http->get($url);
+            if ($res['status'] >= 200 && $res['status'] < 500) {
+                // 2xx/3xx/4xx all prove the network path works (4xx = reached it).
+                $anyOk = true;
+                $perHost[$name] = 'HTTP ' . $res['status'];
+            } elseif ($res['status'] === 0) {
+                $err = $res['error'] ? $res['error'] : 'таймаут/DNS/блокування';
+                if (stripos($err, 'certificate') !== false || stripos($err, 'issuer') !== false || stripos($err, 'ssl') !== false) {
+                    $sslIssue = true;
+                }
+                $perHost[$name] = 'нема відповіді (' . $err . ')';
+            } else {
+                $perHost[$name] = 'HTTP ' . $res['status'];
+            }
         }
-        return array('ok' => false, 'detail' => 'Несподівана відповідь HTTP ' . $res['status']);
+
+        $parts = array();
+        foreach ($perHost as $n => $v) {
+            $parts[] = $n . '=' . $v;
+        }
+        $summary = implode(', ', $parts);
+
+        if ($anyOk) {
+            return array('ok' => true, 'detail' => 'Інтернет працює. ' . $summary);
+        }
+        if ($sslIssue) {
+            return array('ok' => false, 'detail' => 'Проблема з сертифікатами (CA). На Raspbian: sudo apt-get install ca-certificates, або вкажіть curl.cainfo у php.ini. ' . $summary);
+        }
+        return array('ok' => false, 'detail' => 'Немає вихідного зʼєднання до жодного хоста. ' . $summary);
     }
 }

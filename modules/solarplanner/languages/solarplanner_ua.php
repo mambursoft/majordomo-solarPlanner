@@ -172,6 +172,11 @@ $dictionary = array(
     'SP_DIAG_COL_PROV'      => 'Провайдер',
     'SP_DIAG_COL_RESULT'    => 'Результат',
     'SP_DIAG_RUNPLAN_HINT'  => 'Розрахувати план зараз і одразу побачити результат (у shadow mode запис в інвертор не виконується).',
+
+    // Solcast resources
+    'SP_SOLCAST_RES'    => 'Solcast resource_id',
+    'SP_SOLCAST_FETCH'  => 'Отримати ресурси',
+    'SP_H_SOLCAST_RES'  => 'Ідентифікатори майданчиків Solcast через кому. Збережіть API key і натисніть «Отримати ресурси» — вони підтягнуться автоматично.',
 );
 
 foreach ($dictionary as $k => $v) {
