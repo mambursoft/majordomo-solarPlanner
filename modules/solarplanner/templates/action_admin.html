@@ -285,12 +285,15 @@
         &nbsp; <span class="label [#if DIAG_USABLE="0"#]label-danger[#else#]label-success[#endif#]"><#LANG_SP_DIAG_USABLE#>: [#DIAG_USABLE#]</span>
       </div>
       <div class="panel-body">
+        [#if DIAG_SUN#]<p class="text-muted" style="margin-top:0;"><span class="glyphicon glyphicon-time"></span> [#DIAG_SUN#]</p>[#endif#]
         <table class="table table-striped table-condensed">
           <thead><tr>
             <th><#LANG_SP_DIAG_COL_PROV#></th>
             <th><#LANG_SP_STATES_COL_CODE#></th>
             <th><#LANG_SP_DIAG_COL_RESULT#></th>
             <th><#LANG_SP_PV_TOMORROW#></th>
+            <th><#LANG_SP_DIAG_COL_SOURCE#></th>
+            <th><#LANG_SP_DIAG_COL_NEXT#></th>
           </tr></thead>
           <tbody>
           [#begin DIAG_PROVIDERS#]
@@ -299,11 +302,14 @@
               <td><span class="label [#BADGE#]">[#STATUS#]</span></td>
               <td style="font-size:13px;">[#DETAIL#]</td>
               <td>[#TOTAL#] <small class="text-muted">([#INTERVALS#])</small></td>
+              <td><small>[#SOURCE#]</small></td>
+              <td><small>[#NEXT#]</small></td>
             </tr>
           [#end DIAG_PROVIDERS#]
           </tbody>
         </table>
         <button class="btn btn-primary" onclick="spRunPlan()"><span class="glyphicon glyphicon-refresh"></span> <#LANG_SP_RUN_PLAN#></button>
+        <a class="btn btn-default" href="?view_mode=diagnostics&force=1"><span class="glyphicon glyphicon-cloud-download"></span> <#LANG_SP_DIAG_FORCE#></a>
         <span class="text-muted" style="margin-left:10px;"><#LANG_SP_DIAG_RUNPLAN_HINT#></span>
       </div>
     </div>

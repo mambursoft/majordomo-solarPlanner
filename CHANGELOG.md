@@ -3,6 +3,32 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog; this project uses semantic versioning.
 
+## [1.0.6] - 2026-11-02
+
+### Added
+- **Forecast caching + a sunrise/sunset-aware fetch schedule** so provider
+  quota is spread across the day instead of burned every cycle:
+  - `ForecastCache` stores the latest successful run per provider (in the
+    `settings` table) and serves it while fresh; plan recomputes reuse it with
+    no HTTP call. On a fetch failure the module falls back to a still-usable
+    cached run.
+  - `FetchScheduler` spaces fetches using `ThisComputer.SunRiseTime` /
+    `ThisComputer.SunSetTime` (via `SolarWindows`, with a latitude fallback):
+    sparse daytime refreshes, several night refreshes because tomorrow's
+    forecast decides how many kWh to buy cheaply, and a denser cadence as the
+    critical last-top-up time approaches.
+  - Per-provider minimum intervals protect Forecast.Solar's hourly IP limit and
+    Solcast's small daily quota. The cycle respects the schedule; the manual
+    "Run plan" and the new "Refresh now" button force a live fetch.
+- Diagnostics tab now shows each provider's **source** (live / cache) and the
+  **next scheduled fetch**, plus a sunrise/sunset/cheap-window summary line.
+- New configurable defaults: `CACHE_MAX_AGE_MIN` (6h), Forecast.Solar min
+  interval (20 min), Solcast day/night fetch counts (3/4).
+
+### Changed
+- `PlanRunner` and `DiagnosticsService` are cache-aware and share the exact same
+  collection path, so the cycle and the UI stay consistent.
+
 ## [1.0.5] - 2026-11-02
 
 ### Fixed

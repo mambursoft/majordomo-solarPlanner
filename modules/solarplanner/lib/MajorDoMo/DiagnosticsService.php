@@ -29,14 +29,30 @@ use SolarPlanner\Forecast\OpenMeteoAdapter;
 use SolarPlanner\Forecast\ForecastSolarAdapter;
 use SolarPlanner\Forecast\SolcastAdapter;
 
+use SolarPlanner\Forecast\ForecastCache;
+use SolarPlanner\Forecast\FetchScheduler;
+use SolarPlanner\Forecast\ForecastRun;
+use SolarPlanner\Common\SolarWindows;
+
 class DiagnosticsService
 {
     /** @var array module config (as stored) */
     private $cfg;
+    /** @var ForecastCache|null */
+    private $cache;
+    /** @var callable|null getter for MajorDoMo properties (gg wrapper) */
+    private $propGetter;
 
-    public function __construct(array $cfg)
+    /**
+     * @param array $cfg module config
+     * @param ForecastCache|null $cache optional forecast cache
+     * @param callable|null $propGetter function(string $prop): mixed (gg wrapper)
+     */
+    public function __construct(array $cfg, $cache = null, $propGetter = null)
     {
         $this->cfg = $cfg;
+        $this->cache = $cache;
+        $this->propGetter = $propGetter;
     }
 
     /**
@@ -91,7 +107,7 @@ class DiagnosticsService
      * @param object|null $store object exposing saveForecastRun(array) (optional)
      * @return array ['runs'=>[...], 'providers'=>[ code => ['enabled','status','detail','intervals','total_kwh'] ], 'site'=>..., 'env'=>...]
      */
-    public function collect($fromUtc, $toUtc, $store = null)
+    public function collect($fromUtc, $toUtc, $store = null, $force = false)
     {
         $cfg = $this->cfg;
         $site = $this->resolveSite();
@@ -101,35 +117,48 @@ class DiagnosticsService
         $quota = new QuotaManager();
         $pv = new PvModel($site['arrays'], 0.0);
 
+        // Sun/night context drives the fetch schedule.
+        $now = time();
+        $sun = (new SolarWindows($site['tz'], $this->propGetter))->resolve($now, array(
+            'cheap_start_hour' => isset($cfg['CHEAP_START_HOUR']) ? (int)$cfg['CHEAP_START_HOUR'] : 23,
+            'cheap_end_hour' => isset($cfg['CHEAP_END_HOUR']) ? (int)$cfg['CHEAP_END_HOUR'] : 7,
+        ), $site['lat']);
+        $scheduler = new FetchScheduler($this->schedulerPolicy());
+
         $runs = array();
         $providers = array();
 
         // ---- Open-Meteo ----
-        $omEnabled = !empty($cfg['OPEN_METEO_ENABLED']);
-        if ($omEnabled) {
-            $a = new OpenMeteoAdapter($http, $quota, $pv, $site, 'open_meteo');
-            $r = $a->fetch($fromUtc, $toUtc, false);
-            $providers['open_meteo'] = $this->providerRow(true, $r, $store, $runs, 'open-meteo');
+        if (!empty($cfg['OPEN_METEO_ENABLED'])) {
+            $providers['open_meteo'] = $this->fetchProvider(
+                'open_meteo',
+                function () use ($http, $quota, $pv, $site, $fromUtc, $toUtc) {
+                    $a = new OpenMeteoAdapter($http, $quota, $pv, $site, 'open_meteo');
+                    return $a->fetch($fromUtc, $toUtc, false);
+                },
+                'open-meteo', $store, $runs, $scheduler, $sun, $now, $force
+            );
         } else {
-            $providers['open_meteo'] = array('enabled' => 0, 'status' => 'disabled',
-                'detail' => 'Провайдер вимкнено в налаштуваннях', 'total_kwh' => null, 'intervals' => 0);
+            $providers['open_meteo'] = $this->disabledRow();
         }
 
         // ---- Forecast.Solar ----
-        $fsEnabled = !empty($cfg['FORECAST_SOLAR_ENABLED']);
-        if ($fsEnabled) {
+        if (!empty($cfg['FORECAST_SOLAR_ENABLED'])) {
             $key = isset($cfg['FORECAST_SOLAR_API_KEY']) ? $cfg['FORECAST_SOLAR_API_KEY'] : null;
-            $a = new ForecastSolarAdapter($http, $quota, $site, $key ?: null, 'forecast_solar');
-            $r = $a->fetch($fromUtc, $toUtc, false);
-            $providers['forecast_solar'] = $this->providerRow(true, $r, $store, $runs, 'forecast_solar');
+            $providers['forecast_solar'] = $this->fetchProvider(
+                'forecast_solar',
+                function () use ($http, $quota, $site, $key, $fromUtc, $toUtc) {
+                    $a = new ForecastSolarAdapter($http, $quota, $site, $key ?: null, 'forecast_solar');
+                    return $a->fetch($fromUtc, $toUtc, false);
+                },
+                'forecast_solar', $store, $runs, $scheduler, $sun, $now, $force
+            );
         } else {
-            $providers['forecast_solar'] = array('enabled' => 0, 'status' => 'disabled',
-                'detail' => 'Провайдер вимкнено в налаштуваннях', 'total_kwh' => null, 'intervals' => 0);
+            $providers['forecast_solar'] = $this->disabledRow();
         }
 
         // ---- Solcast ----
-        $scEnabled = !empty($cfg['SOLCAST_ENABLED']);
-        if ($scEnabled) {
+        if (!empty($cfg['SOLCAST_ENABLED'])) {
             $keyOk = !empty($cfg['SOLCAST_API_KEY']);
             $idsOk = !empty($cfg['SOLCAST_RESOURCE_IDS']);
             if (!$keyOk || !$idsOk) {
@@ -138,17 +167,24 @@ class DiagnosticsService
                 if (!$idsOk) { $miss[] = 'resource id'; }
                 $providers['solcast'] = array('enabled' => 1, 'status' => 'misconfigured',
                     'detail' => 'Увімкнено, але не задано: ' . implode(', ', $miss),
-                    'total_kwh' => null, 'intervals' => 0);
+                    'total_kwh' => null, 'intervals' => 0, 'source' => 'config');
             } else {
                 $ids = array_filter(array_map('trim', explode(',', $cfg['SOLCAST_RESOURCE_IDS'])));
-                $a = new SolcastAdapter($http, $quota, $ids, $cfg['SOLCAST_API_KEY'], 'solcast');
-                $r = $a->fetch($fromUtc, $toUtc, false);
-                $providers['solcast'] = $this->providerRow(true, $r, $store, $runs, 'solcast');
+                $skey = $cfg['SOLCAST_API_KEY'];
+                $providers['solcast'] = $this->fetchProvider(
+                    'solcast',
+                    function () use ($http, $quota, $ids, $skey, $fromUtc, $toUtc) {
+                        $a = new SolcastAdapter($http, $quota, $ids, $skey, 'solcast');
+                        return $a->fetch($fromUtc, $toUtc, false);
+                    },
+                    'solcast', $store, $runs, $scheduler, $sun, $now, $force
+                );
             }
         } else {
-            $providers['solcast'] = array('enabled' => 0, 'status' => 'disabled',
-                'detail' => 'Провайдер вимкнено в налаштуваннях', 'total_kwh' => null, 'intervals' => 0);
+            $providers['solcast'] = $this->disabledRow();
         }
+
+        $env['sun'] = $sun;
 
         return array(
             'runs' => $runs,
@@ -158,34 +194,137 @@ class DiagnosticsService
         );
     }
 
-    /** Build a provider diagnostic row and collect a usable run. */
-    private function providerRow($enabled, array $r, $store, array &$runs, $weatherModel)
+    private function disabledRow()
     {
+        return array('enabled' => 0, 'status' => 'disabled',
+            'detail' => 'Провайдер вимкнено в налаштуваннях', 'total_kwh' => null, 'intervals' => 0, 'source' => '-');
+    }
+
+    /** Scheduler policy per provider (configurable later; sensible defaults). */
+    private function schedulerPolicy()
+    {
+        $cfg = $this->cfg;
+        $fsMin = isset($cfg['FORECAST_SOLAR_MIN_INTERVAL_MIN']) ? (int)$cfg['FORECAST_SOLAR_MIN_INTERVAL_MIN'] : 20;
+        $scDay = isset($cfg['SOLCAST_DAY_FETCHES']) ? (int)$cfg['SOLCAST_DAY_FETCHES'] : 3;
+        $scNight = isset($cfg['SOLCAST_NIGHT_FETCHES']) ? (int)$cfg['SOLCAST_NIGHT_FETCHES'] : 4;
+        return array(
+            // Open-Meteo: effectively unlimited; refresh sparingly (model updates
+            // are infrequent). Day and night a handful of times.
+            'open_meteo' => array('min_interval_sec' => 1800, 'day_fetches' => 4, 'night_fetches' => 4),
+            // Forecast.Solar: ~12 req/hour per IP -> keep a safe min interval.
+            'forecast_solar' => array('min_interval_sec' => $fsMin * 60, 'day_fetches' => 4, 'night_fetches' => 4),
+            // Solcast: scarce daily quota. Spend MOST of it at night (tomorrow's
+            // forecast decides how much to buy), a little during the day.
+            'solcast' => array('min_interval_sec' => 1800, 'day_fetches' => $scDay, 'night_fetches' => $scNight),
+        );
+    }
+
+    /**
+     * Fetch a provider honouring cache + schedule. On a non-due schedule with a
+     * fresh cache, no HTTP is made (quota saved). On a fetch failure, falls back
+     * to a still-usable cached run. On success, updates the cache.
+     *
+     * @param string $providerId
+     * @param callable $fetchFn returns ['run'=>?ForecastRun,'status'=>,'detail'=>]
+     */
+    private function fetchProvider($providerId, callable $fetchFn, $weatherModel, $store, array &$runs, FetchScheduler $scheduler, array $sun, $now, $force)
+    {
+        $lastFetch = $this->cache ? $this->cache->lastFetchUtc($providerId, $now) : null;
+        $sched = $scheduler->shouldFetch($providerId, $now, $lastFetch, $sun);
+        $doFetch = $force || $sched['fetch'];
+
+        // Serve from fresh cache when a fetch is not due.
+        if (!$doFetch && $this->cache) {
+            $entry = $this->cache->get($providerId, $now);
+            if ($entry && $entry['fresh']) {
+                return $this->cachedRow($providerId, $entry, $runs, $weatherModel, $sched);
+            }
+            // cache missing/stale but not due -> still fetch to avoid going blind.
+            $doFetch = true;
+        }
+
+        $r = call_user_func($fetchFn);
         $status = isset($r['status']) ? $r['status'] : 'unusable';
         $detail = isset($r['detail']) ? $r['detail'] : '';
-        $total = null;
-        $intervals = 0;
-        if (!empty($r['run'])) {
-            $total = round($r['run']->totalPvKwh(), 3);
-            $intervals = count($r['run']->intervals);
-            if ($store && method_exists($store, 'saveForecastRun')) {
-                try {
-                    $store->saveForecastRun($r['run']->toArray());
-                } catch (\Throwable $e) {
-                    // storing must never break the run
-                }
+
+        if (!empty($r['run']) && ($status === 'fresh' || $status === 'partial')) {
+            // Success: update cache and collect the run.
+            if ($this->cache) {
+                try { $this->cache->put($providerId, $r['run']->toArray(), $now); } catch (\Throwable $e) {}
             }
-            if ($status === 'fresh' || $status === 'partial') {
-                $runs[] = array('run' => $r['run'], 'mae' => null, 'obs' => 0, 'weather_model' => $weatherModel);
+            if ($store && method_exists($store, 'saveForecastRun')) {
+                try { $store->saveForecastRun($r['run']->toArray()); } catch (\Throwable $e) {}
+            }
+            $runs[] = array('run' => $r['run'], 'mae' => null, 'obs' => 0, 'weather_model' => $weatherModel);
+            return array(
+                'enabled' => 1,
+                'status' => $status,
+                'detail' => $this->humanDetail($status, $detail),
+                'total_kwh' => round($r['run']->totalPvKwh(), 3),
+                'intervals' => count($r['run']->intervals),
+                'source' => 'live',
+                'next_fetch_utc' => $sched['next_utc'],
+            );
+        }
+
+        // Fetch failed: fall back to a still-usable cached run.
+        if ($this->cache) {
+            $entry = $this->cache->get($providerId, $now);
+            if ($entry && $entry['fresh']) {
+                $row = $this->cachedRow($providerId, $entry, $runs, $weatherModel, $sched);
+                $row['detail'] = 'Live-запит не вдався (' . $this->humanDetail($status, $detail) . '), використано кеш (' . $this->ageText($entry['age_sec']) . ').';
+                $row['status'] = 'cached';
+                return $row;
             }
         }
+
         return array(
-            'enabled' => $enabled ? 1 : 0,
+            'enabled' => 1,
             'status' => $status,
             'detail' => $this->humanDetail($status, $detail),
+            'total_kwh' => null,
+            'intervals' => 0,
+            'source' => 'live',
+            'next_fetch_utc' => $sched['next_utc'],
+        );
+    }
+
+    /** Build a provider row from a cached entry and collect its run. */
+    private function cachedRow($providerId, array $entry, array &$runs, $weatherModel, array $sched)
+    {
+        $run = ForecastRun::fromArray($entry['run']);
+        if ($run && !empty($run->intervals)) {
+            $runs[] = array('run' => $run, 'mae' => null, 'obs' => 0, 'weather_model' => $weatherModel);
+            $total = round($run->totalPvKwh(), 3);
+            $intervals = count($run->intervals);
+        } else {
+            $total = null;
+            $intervals = 0;
+        }
+        return array(
+            'enabled' => 1,
+            'status' => 'cached',
+            'detail' => 'З кешу (' . $this->ageText($entry['age_sec']) . '), наступне оновлення: ' . $this->timeText($sched['next_utc']) . '.',
             'total_kwh' => $total,
             'intervals' => $intervals,
+            'source' => 'cache',
+            'next_fetch_utc' => $sched['next_utc'],
         );
+    }
+
+    private function ageText($sec)
+    {
+        $sec = max(0, (int)$sec);
+        if ($sec < 3600) {
+            return round($sec / 60) . ' хв тому';
+        }
+        return round($sec / 3600, 1) . ' год тому';
+    }
+
+    private function timeText($utc)
+    {
+        $tz = new \DateTimeZone(!empty($this->cfg['TIMEZONE']) ? $this->cfg['TIMEZONE'] : 'Europe/Kyiv');
+        return (new \DateTime('@' . (int)$utc))->setTimezone($tz)->format('H:i');
     }
 
     /** Turn a terse status/detail into a short Ukrainian explanation. */

@@ -171,7 +171,10 @@ $dictionary = array(
     'SP_DIAG_USABLE'        => 'Придатних провайдерів',
     'SP_DIAG_COL_PROV'      => 'Провайдер',
     'SP_DIAG_COL_RESULT'    => 'Результат',
-    'SP_DIAG_RUNPLAN_HINT'  => 'Розрахувати план зараз і одразу побачити результат (у shadow mode запис в інвертор не виконується).',
+    'SP_DIAG_COL_SOURCE'    => 'Джерело',
+    'SP_DIAG_COL_NEXT'      => 'Наступний запит',
+    'SP_DIAG_FORCE'         => 'Оновити зараз (витратити квоту)',
+    'SP_DIAG_RUNPLAN_HINT'  => 'Розрахувати план зараз і одразу побачити результат (у shadow mode запис в інвертор не виконується). Прогнози кешуються й оновлюються за розкладом, щоб не виїдати квоти.',
 
     // Solcast resources
     'SP_SOLCAST_RES'    => 'Solcast resource_id',

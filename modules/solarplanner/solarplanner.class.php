@@ -10,7 +10,7 @@
  * @author     mambursoft
  * @copyright  2026 mambursoft
  * @license    MIT
- * @version    1.0.5
+ * @version    1.0.6
  */
 
 require_once(dirname(__FILE__) . '/lib/autoload.php');
@@ -160,8 +160,8 @@ class solarplanner extends module
                     'REPOSITORY_URL'  => 'https://github.com/mambursoft/majordomo-solarPlanner',
                     'DESCRIPTION_RU'  => $descRu,
                     'DESCRIPTION_EN'  => $descEn,
-                    'CURRENT_VERSION' => '1.0.5',
-                    'LATEST_VERSION'  => '1.0.5',
+                    'CURRENT_VERSION' => '1.0.6',
+                    'LATEST_VERSION'  => '1.0.6',
                     'IS_INSTALLED'    => 1,
                     'LATEST_UPDATE'   => date('Y-m-d H:i:s'),
                 );
@@ -171,7 +171,7 @@ class solarplanner extends module
                 $pRec['AUTHOR']         = 'mambursoft';
                 $pRec['DESCRIPTION_RU'] = $descRu;
                 $pRec['DESCRIPTION_EN'] = $descEn;
-                $pRec['CURRENT_VERSION']= '1.0.5';
+                $pRec['CURRENT_VERSION']= '1.0.6';
                 $pRec['IS_INSTALLED']   = 1;
                 SQLUpdate('plugins', $pRec);
             }
@@ -228,6 +228,11 @@ class solarplanner extends module
             'SOLCAST_RESERVED_UNITS' => 2,
             'ANNOUNCE_PLAN'        => 0,
             'DATA_DIR'             => '',
+            // Forecast caching / fetch schedule (save provider quota).
+            'CACHE_MAX_AGE_MIN'    => 360,   // a cached forecast is usable for 6h
+            'FORECAST_SOLAR_MIN_INTERVAL_MIN' => 20, // Forecast.Solar ~12/h per IP
+            'SOLCAST_DAY_FETCHES'  => 3,     // daytime Solcast refreshes
+            'SOLCAST_NIGHT_FETCHES'=> 4,     // night Solcast refreshes (tomorrow matters)
             // A representative single south-facing array so Open-Meteo returns a
             // plausible PV curve immediately. Replace with real arrays.
             'PV_ARRAYS_JSON'       => '[{"array_id":"roof_south","kwp":3.22,"tilt_deg":40,"azimuth_module_deg":180,"dc_loss":0.14,"temp_coeff_pct_per_c":-0.004}]',
@@ -364,7 +369,8 @@ EOD;
         }
 
         if ($action == 'run_diagnostics') {
-            $res = $this->runDiagnostics();
+            $force = !empty($_REQUEST['force']);
+            $res = $this->runDiagnostics($force);
             header('Content-Type: application/json; charset=utf-8');
             echo json_encode($res);
             exit;
@@ -555,17 +561,17 @@ EOD;
      * forecast attempt) without necessarily saving a plan. Used by the
      * Diagnostics tab and its "Re-check" button.
      */
-    function runDiagnostics()
+    function runDiagnostics($force = false)
     {
         $this->getConfig();
         require_once(dirname(__FILE__) . '/lib/MajorDoMo/DiagnosticsService.php');
         require_once(dirname(__FILE__) . '/lib/MajorDoMo/SqlForecastStore.php');
         $cfg = is_array($this->config) ? $this->config : array();
-        $diag = new \SolarPlanner\MajorDoMo\DiagnosticsService($cfg);
+        $diag = new \SolarPlanner\MajorDoMo\DiagnosticsService($cfg, $this->forecastCache(), $this->propGetter());
         $now = time();
         $store = new \SolarPlanner\MajorDoMo\SqlForecastStore();
         try {
-            $collected = $diag->collect($now, $now + 44 * 3600, $store);
+            $collected = $diag->collect($now, $now + 44 * 3600, $store, $force);
         } catch (\Throwable $e) {
             return array('ok' => false, 'error' => $e->getMessage());
         }
@@ -633,6 +639,53 @@ EOD;
             'success' => true,
             'message' => 'Знайдено ' . count($ids) . ' resource_id (' . htmlspecialchars(implode(', ', $names)) . '). Solcast увімкнено.',
         );
+    }
+
+    /**
+     * A ForecastCache backed by MajorDoMo's `settings` table (durable KV), so
+     * plan recomputes reuse the last forecast and do not spend provider quota.
+     */
+    public function forecastCache()
+    {
+        require_once(dirname(__FILE__) . '/lib/Forecast/ForecastCache.php');
+        $maxAge = isset($this->config['CACHE_MAX_AGE_MIN']) ? (int)$this->config['CACHE_MAX_AGE_MIN'] * 60 : 6 * 3600;
+        return new \SolarPlanner\Forecast\ForecastCache(
+            function ($key) { return self::kvGet($key); },
+            function ($key, $val) { self::kvSet($key, $val); },
+            $maxAge
+        );
+    }
+
+    /** Getter for MajorDoMo object properties (gg wrapper) for SolarWindows. */
+    public function propGetter()
+    {
+        return function ($prop) {
+            return function_exists('gg') ? gg($prop) : null;
+        };
+    }
+
+    /** Durable KV read from the `settings` table (NAME/VALUE). */
+    public static function kvGet($key)
+    {
+        if (!SQLSelectOne("SHOW TABLES LIKE 'settings'")) {
+            return null;
+        }
+        $row = SQLSelectOne("SELECT VALUE FROM settings WHERE NAME='" . DBSafe($key) . "'");
+        return ($row && isset($row['VALUE'])) ? $row['VALUE'] : null;
+    }
+
+    /** Durable KV write to the `settings` table (NAME/VALUE). */
+    public static function kvSet($key, $value)
+    {
+        if (!SQLSelectOne("SHOW TABLES LIKE 'settings'")) {
+            return;
+        }
+        $row = SQLSelectOne("SELECT ID FROM settings WHERE NAME='" . DBSafe($key) . "'");
+        if ($row && isset($row['ID'])) {
+            SQLUpdate('settings', array('ID' => $row['ID'], 'NAME' => $key, 'VALUE' => $value));
+        } else {
+            SQLInsert('settings', array('NAME' => $key, 'VALUE' => $value));
+        }
     }
 
     /** List MajorDoMo objects (TITLE) for the picker dropdowns. */
@@ -751,11 +804,15 @@ EOD;
         require_once(dirname(__FILE__) . '/lib/MajorDoMo/PlanRunner.php');
 
         $cfg = is_array($this->config) ? $this->config : array();
+        require_once(dirname(__FILE__) . '/lib/Forecast/ForecastCache.php');
         $store = new \SolarPlanner\MajorDoMo\SqlForecastStore();
         $self = $this;
 
         try {
             $plan = \SolarPlanner\MajorDoMo\PlanRunner::run($cfg, $store, array(
+                'cache' => $this->forecastCache(),
+                'prop_getter' => $this->propGetter(),
+                'force_fetch' => true, // manual "Run plan" => refresh now
                 'get_soc' => function () {
                     $row = SQLSelectOne("SELECT BATTERY_SOC_PCT FROM solarplanner_telemetry WHERE BATTERY_SOC_PCT IS NOT NULL ORDER BY SAMPLE_UTC DESC LIMIT 1");
                     return ($row && $row['BATTERY_SOC_PCT'] !== null) ? (float)$row['BATTERY_SOC_PCT'] : null;
@@ -939,7 +996,8 @@ EOD;
     /** Flatten the diagnostic report into template-friendly rows. */
     private function populateDiagnostics(&$out)
     {
-        $rep = $this->runDiagnostics();
+        $force = !empty($_GET['force']);
+        $rep = $this->runDiagnostics($force);
         if (empty($rep['ok'])) {
             $out['DIAG_ERROR'] = htmlspecialchars(isset($rep['error']) ? $rep['error'] : 'unknown');
             return;
@@ -972,9 +1030,20 @@ EOD;
         // Provider rows.
         $prov = array();
         $labels = array('open_meteo' => 'Open-Meteo', 'forecast_solar' => 'Forecast.Solar', 'solcast' => 'Solcast');
+        $tz = !empty($this->config['TIMEZONE']) ? $this->config['TIMEZONE'] : 'Europe/Kyiv';
         foreach ($rep['providers'] as $code => $p) {
-            $ok = ($p['status'] === 'fresh' || $p['status'] === 'partial');
-            $badge = $ok ? 'label-success' : ($p['status'] === 'disabled' ? 'label-default' : 'label-danger');
+            $ok = in_array($p['status'], array('fresh', 'partial', 'cached'), true);
+            $badge = $ok ? ($p['status'] === 'cached' ? 'label-info' : 'label-success')
+                : ($p['status'] === 'disabled' ? 'label-default' : 'label-danger');
+            $src = isset($p['source']) ? $p['source'] : '';
+            $next = '';
+            if (!empty($p['next_fetch_utc'])) {
+                try {
+                    $next = (new DateTime('@' . (int)$p['next_fetch_utc']))->setTimezone(new DateTimeZone($tz))->format('H:i');
+                } catch (\Exception $e) {
+                    $next = '';
+                }
+            }
             $prov[] = array(
                 'NAME' => isset($labels[$code]) ? $labels[$code] : $code,
                 'CODE' => $code,
@@ -983,9 +1052,27 @@ EOD;
                 'DETAIL' => htmlspecialchars($p['detail']),
                 'TOTAL' => ($p['total_kwh'] === null ? '—' : $p['total_kwh'] . ' кВт·год'),
                 'INTERVALS' => (int)$p['intervals'],
+                'SOURCE' => htmlspecialchars($src),
+                'NEXT' => htmlspecialchars($next),
             );
         }
         $out['DIAG_PROVIDERS'] = $prov;
         $out['DIAG_USABLE'] = (int)$rep['usable_providers'];
+
+        // Sun / schedule summary line.
+        if (isset($rep['environment']['sun'])) {
+            $sun = $rep['environment']['sun'];
+            $fmt = function ($utc) use ($tz) {
+                try {
+                    return (new DateTime('@' . (int)$utc))->setTimezone(new DateTimeZone($tz))->format('H:i');
+                } catch (\Exception $e) {
+                    return '?';
+                }
+            };
+            $out['DIAG_SUN'] = 'Світанок ' . $fmt($sun['sunrise_utc']) . ', захід ' . $fmt($sun['sunset_utc'])
+                . ' · дешеве вікно ' . $fmt($sun['night_start_utc']) . '–' . $fmt($sun['night_end_utc'])
+                . ' · критичне уточнення до ' . $fmt($sun['critical_refine_utc'])
+                . ' · джерело: ' . ($sun['sun_source'] === 'properties' ? 'ThisComputer.SunRise/SunSet' : 'оцінка');
+        }
     }
 }

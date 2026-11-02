@@ -41,6 +41,27 @@ whatever is available (with reduced confidence surfaced in the UI).
   the module keeps their definition and does **not** relabel them as calibrated
   P10/P90 of your site. Do not commit real Solcast responses as fixtures.
 
+## Caching and the fetch schedule (quota saving)
+
+Forecasts are cached per provider and refreshed on a schedule so the module does
+not spend quota on every plan recompute:
+
+- A plan recompute (every ~15 min) reads the cache; only a scheduled fetch makes
+  an HTTP call. A cached forecast is usable for `CACHE_MAX_AGE_MIN` (default 6h).
+- The schedule uses `ThisComputer.SunRiseTime` / `ThisComputer.SunSetTime` (with
+  a latitude fallback): **sparse daytime** refreshes (today's PV is already
+  materialising), **several night** refreshes because tomorrow's forecast
+  decides how many kWh to buy on the cheap tariff, and a **denser cadence near
+  the last useful top-up time**.
+- Per-provider minimum intervals protect Forecast.Solar's ~12 req/hour-per-IP
+  limit and Solcast's small daily quota. Tune with `FORECAST_SOLAR_MIN_INTERVAL_MIN`,
+  `SOLCAST_DAY_FETCHES`, `SOLCAST_NIGHT_FETCHES`.
+- The cycle respects the schedule; the UI "Run plan" and the Diagnostics
+  "Refresh now" button force a live fetch. The Diagnostics tab shows each
+  provider's source (live/cache) and the next scheduled fetch.
+- If a live fetch fails, the module falls back to a still-usable cached run
+  rather than going blind.
+
 ## PVGIS / TMY (sanity check only)
 
 PVGIS / typical-meteorological-year data is for seasonal plausibility and rough

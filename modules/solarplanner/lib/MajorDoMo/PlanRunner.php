@@ -35,6 +35,12 @@ class PlanRunner
      *   'say'          => function(string $text): void
      * @return array plan result with a 'diagnostics' block
      */
+    /**
+     * @param array $hooks optional callables; additionally:
+     *   'cache'       => ForecastCache for quota-saving reuse (optional)
+     *   'prop_getter' => function(string $prop): mixed (gg wrapper, for sun times)
+     *   'force_fetch' => bool, bypass the schedule (manual "Run plan")
+     */
     public static function run(array $cfg, $store = null, array $hooks = array())
     {
         $tz = !empty($cfg['TIMEZONE']) ? $cfg['TIMEZONE'] : 'Europe/Kyiv';
@@ -46,9 +52,12 @@ class PlanRunner
         $from = $now;
         $to = $now + 44 * 3600; // 36-48h horizon
 
-        // 1) Collect forecasts + environment diagnostics.
-        $diag = new DiagnosticsService($cfg);
-        $collected = $diag->collect($from, $to, $store);
+        // 1) Collect forecasts + environment diagnostics (cache-aware).
+        $cache = isset($hooks['cache']) ? $hooks['cache'] : null;
+        $propGetter = isset($hooks['prop_getter']) ? $hooks['prop_getter'] : null;
+        $force = !empty($hooks['force_fetch']);
+        $diag = new DiagnosticsService($cfg, $cache, $propGetter);
+        $collected = $diag->collect($from, $to, $store, $force);
         $providerRuns = $collected['runs'];
 
         $unavailable = array();

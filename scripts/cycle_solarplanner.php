@@ -147,6 +147,30 @@ function sp_load_config_fallback()
     return array();
 }
 
+/** Durable KV read from the `settings` table (forecast cache transport). */
+function sp_kv_get($key)
+{
+    if (!SQLSelectOne("SHOW TABLES LIKE 'settings'")) {
+        return null;
+    }
+    $row = SQLSelectOne("SELECT VALUE FROM settings WHERE NAME='" . DBSafe($key) . "'");
+    return ($row && isset($row['VALUE'])) ? $row['VALUE'] : null;
+}
+
+/** Durable KV write to the `settings` table. */
+function sp_kv_set($key, $value)
+{
+    if (!SQLSelectOne("SHOW TABLES LIKE 'settings'")) {
+        return;
+    }
+    $row = SQLSelectOne("SELECT ID FROM settings WHERE NAME='" . DBSafe($key) . "'");
+    if ($row && isset($row['ID'])) {
+        SQLUpdate('settings', array('ID' => $row['ID'], 'NAME' => $key, 'VALUE' => $value));
+    } else {
+        SQLInsert('settings', array('NAME' => $key, 'VALUE' => $value));
+    }
+}
+
 function sp_collect_telemetry()
 {
     // Map logical fields to MajorDoMo property names from private config.
@@ -200,7 +224,19 @@ function sp_run_plan()
 
     // Delegate to the shared PlanRunner so the cycle and the UI "Run plan"
     // button behave identically and produce the same diagnostics.
+    // Cache-aware: the cycle respects the fetch schedule (force_fetch=false) so
+    // provider quota is spread across the day/night instead of burned every run.
+    require_once(dirname(__FILE__) . '/../modules/solarplanner/lib/Forecast/ForecastCache.php');
+    $cache = new \SolarPlanner\Forecast\ForecastCache(
+        function ($key) { return sp_kv_get($key); },
+        function ($key, $val) { sp_kv_set($key, $val); },
+        (isset($cfg['CACHE_MAX_AGE_MIN']) ? (int)$cfg['CACHE_MAX_AGE_MIN'] * 60 : 6 * 3600)
+    );
+
     $plan = PlanRunner::run($cfg, $store, array(
+        'cache' => $cache,
+        'prop_getter' => function ($prop) { return function_exists('gg') ? gg($prop) : null; },
+        'force_fetch' => false,
         'get_soc' => 'sp_current_soc',
         'get_history' => 'sp_load_history',
         'publish' => 'sp_publish_properties',

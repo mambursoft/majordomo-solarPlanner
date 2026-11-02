@@ -161,7 +161,10 @@ $dictionary = array(
     'SP_DIAG_USABLE'        => 'Usable providers',
     'SP_DIAG_COL_PROV'      => 'Provider',
     'SP_DIAG_COL_RESULT'    => 'Result',
-    'SP_DIAG_RUNPLAN_HINT'  => 'Compute the plan now and see the result immediately (shadow mode writes nothing to the inverter).',
+    'SP_DIAG_COL_SOURCE'    => 'Source',
+    'SP_DIAG_COL_NEXT'      => 'Next fetch',
+    'SP_DIAG_FORCE'         => 'Refresh now (spend quota)',
+    'SP_DIAG_RUNPLAN_HINT'  => 'Compute the plan now and see the result immediately (shadow mode writes nothing to the inverter). Forecasts are cached and refreshed on a schedule so provider quota is not wasted.',
 
     'SP_SOLCAST_RES'    => 'Solcast resource_id',
     'SP_SOLCAST_FETCH'  => 'Fetch resources',

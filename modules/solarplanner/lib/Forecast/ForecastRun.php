@@ -101,6 +101,32 @@ class ForecastRun
         return $minStart <= $fromUtc && $maxEnd >= $toUtc;
     }
 
+    /**
+     * Reconstruct a ForecastRun from a toArray() payload (used by the cache).
+     * Returns null if the payload is not a usable run.
+     */
+    public static function fromArray($data)
+    {
+        if (!is_array($data) || empty($data['provider_id'])) {
+            return null;
+        }
+        $run = new self($data['provider_id']);
+        $run->forecastRunId = isset($data['forecast_run_id']) ? $data['forecast_run_id'] : $run->forecastRunId;
+        $run->retrievedAtUtc = isset($data['retrieved_at_utc']) ? (int)$data['retrieved_at_utc'] : $run->retrievedAtUtc;
+        $run->issuedAtUtc = isset($data['issued_at_utc']) ? $data['issued_at_utc'] : null;
+        $run->validFromUtc = isset($data['valid_from_utc']) ? (int)$data['valid_from_utc'] : null;
+        $run->validToUtc = isset($data['valid_to_utc']) ? (int)$data['valid_to_utc'] : null;
+        $run->locationConfigHash = isset($data['location_config_hash']) ? $data['location_config_hash'] : '';
+        $run->pvConfigHash = isset($data['pv_config_hash']) ? $data['pv_config_hash'] : '';
+        $run->modelId = isset($data['model_id']) ? $data['model_id'] : null;
+        $run->energyBasis = isset($data['energy_basis']) ? $data['energy_basis'] : '';
+        $run->rawResponseHash = isset($data['raw_response_hash']) ? $data['raw_response_hash'] : '';
+        $run->qualityFlags = isset($data['quality_flags']) && is_array($data['quality_flags']) ? $data['quality_flags'] : array();
+        $run->quotaState = isset($data['quota_state']) && is_array($data['quota_state']) ? $data['quota_state'] : array();
+        $run->intervals = isset($data['intervals']) && is_array($data['intervals']) ? $data['intervals'] : array();
+        return $run;
+    }
+
     public function toArray()
     {
         return array(
