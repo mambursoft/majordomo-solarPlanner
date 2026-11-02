@@ -39,14 +39,16 @@ class SqlForecastStore implements ForecastStore
         $id = SQLInsert('solarplanner_forecast_runs', $rec);
         if (!empty($run['intervals'])) {
             foreach ($run['intervals'] as $iv) {
-                SQLInsert('solarplanner_forecast_intervals', array(
+                // SQLInsert takes the record by reference -> must be a variable.
+                $ivRec = array(
                     'RUN_ID' => $id,
                     'INTERVAL_START_UTC' => (int)$iv['interval_start_utc'],
                     'INTERVAL_END_UTC' => (int)$iv['interval_end_utc'],
                     'PV_ENERGY_KWH' => $iv['pv_energy_kwh'] === null ? 0 : (float)$iv['pv_energy_kwh'],
                     'IS_MISSING' => !empty($iv['is_missing']) ? 1 : 0,
                     'IS_INTERPOLATED' => !empty($iv['is_interpolated']) ? 1 : 0,
-                ));
+                );
+                SQLInsert('solarplanner_forecast_intervals', $ivRec);
             }
         }
         return $id;
@@ -102,11 +104,12 @@ class SqlForecastStore implements ForecastStore
 
     public function audit($event, array $detail)
     {
-        SQLInsert('solarplanner_command_audit', array(
+        $rec = array(
             'TS_UTC' => time(),
             'EVENT' => substr($event, 0, 48),
             'DETAIL' => json_encode($this->stripSecrets($detail)),
-        ));
+        );
+        SQLInsert('solarplanner_command_audit', $rec);
     }
 
     private function stripSecrets(array $a)

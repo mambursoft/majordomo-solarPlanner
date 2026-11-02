@@ -164,10 +164,13 @@ function sp_kv_set($key, $value)
         return;
     }
     $row = SQLSelectOne("SELECT ID FROM settings WHERE NAME='" . DBSafe($key) . "'");
+    // SQLInsert() takes the record by reference -> use a variable (PHP 7.3).
     if ($row && isset($row['ID'])) {
-        SQLUpdate('settings', array('ID' => $row['ID'], 'NAME' => $key, 'VALUE' => $value));
+        $rec = array('ID' => $row['ID'], 'NAME' => $key, 'VALUE' => $value);
+        SQLUpdate('settings', $rec);
     } else {
-        SQLInsert('settings', array('NAME' => $key, 'VALUE' => $value));
+        $rec = array('NAME' => $key, 'VALUE' => $value);
+        SQLInsert('settings', $rec);
     }
 }
 
@@ -193,7 +196,7 @@ function sp_collect_telemetry()
     $raw = $adapter->readTelemetry();
     $v = TelemetryCollector::validate($raw, time(), 300);
     if ($v['sample']['battery_soc_pct'] !== null) {
-        SQLInsert('solarplanner_telemetry', array(
+        $rec = array(
             'SAMPLE_UTC' => $v['sample']['utc'],
             'BATTERY_SOC_PCT' => $v['sample']['battery_soc_pct'],
             'PV_POWER_KW' => $v['sample']['pv_power_kw'],
@@ -201,7 +204,8 @@ function sp_collect_telemetry()
             'GRID_POWER_KW' => $v['sample']['grid_power_kw'],
             'BATTERY_POWER_KW' => $v['sample']['battery_power_kw'],
             'FLAGS' => implode(',', $v['flags']),
-        ));
+        );
+        SQLInsert('solarplanner_telemetry', $rec);
     }
     return $v;
 }
@@ -245,12 +249,13 @@ function sp_run_plan()
 
     // Persist compiled TOU slots for the history table (UI consumes this).
     if (isset($plan['tou_compiled']['compile']['slots'])) {
-        SQLInsert('solarplanner_tou_plans', array(
+        $touRec = array(
             'PLAN_RUN_ID' => 0,
             'SLOTS_JSON' => json_encode($plan['tou_compiled']['compile']['slots']),
             'COMPILED_OK' => !empty($plan['tou_compiled']['accurate']) ? 1 : 0,
             'CREATED' => date('Y-m-d H:i:s'),
-        ));
+        );
+        SQLInsert('solarplanner_tou_plans', $touRec);
     }
     return $plan;
 }

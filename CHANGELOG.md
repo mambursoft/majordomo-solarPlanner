@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog; this project uses semantic versioning.
 
+## [1.0.7] - 2026-11-02
+
+### Fixed
+- **500 Internal Server Error during installation on PHP 7.3.** MajorDoMo's
+  `SQLInsert($table, &$record)` takes the record by reference; passing an inline
+  `array(...)` literal is a fatal "Only variables can be passed by reference" on
+  PHP 7.3 (only a deprecation on PHP 8.x, so it did not surface in local testing
+  on PHP 8.2). All six such calls (settings KV in the class and cycle, telemetry
+  insert, TOU-plan insert, forecast-intervals insert, audit insert) now assign
+  the array to a variable first. Verified on the live PHP 7.3.31 host:
+  construct + getConfig + the previously-fatal kvSet path all succeed.
+
 ## [1.0.6] - 2026-11-02
 
 ### Added

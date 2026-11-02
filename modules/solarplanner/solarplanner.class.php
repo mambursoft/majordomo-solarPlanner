@@ -10,7 +10,7 @@
  * @author     mambursoft
  * @copyright  2026 mambursoft
  * @license    MIT
- * @version    1.0.6
+ * @version    1.0.7
  */
 
 require_once(dirname(__FILE__) . '/lib/autoload.php');
@@ -160,8 +160,8 @@ class solarplanner extends module
                     'REPOSITORY_URL'  => 'https://github.com/mambursoft/majordomo-solarPlanner',
                     'DESCRIPTION_RU'  => $descRu,
                     'DESCRIPTION_EN'  => $descEn,
-                    'CURRENT_VERSION' => '1.0.6',
-                    'LATEST_VERSION'  => '1.0.6',
+                    'CURRENT_VERSION' => '1.0.7',
+                    'LATEST_VERSION'  => '1.0.7',
                     'IS_INSTALLED'    => 1,
                     'LATEST_UPDATE'   => date('Y-m-d H:i:s'),
                 );
@@ -171,7 +171,7 @@ class solarplanner extends module
                 $pRec['AUTHOR']         = 'mambursoft';
                 $pRec['DESCRIPTION_RU'] = $descRu;
                 $pRec['DESCRIPTION_EN'] = $descEn;
-                $pRec['CURRENT_VERSION']= '1.0.6';
+                $pRec['CURRENT_VERSION']= '1.0.7';
                 $pRec['IS_INSTALLED']   = 1;
                 SQLUpdate('plugins', $pRec);
             }
@@ -681,10 +681,14 @@ EOD;
             return;
         }
         $row = SQLSelectOne("SELECT ID FROM settings WHERE NAME='" . DBSafe($key) . "'");
+        // Note: SQLInsert() takes the record BY REFERENCE, so the array must be
+        // a variable (PHP 7.3 fatals on passing a literal by reference).
         if ($row && isset($row['ID'])) {
-            SQLUpdate('settings', array('ID' => $row['ID'], 'NAME' => $key, 'VALUE' => $value));
+            $rec = array('ID' => $row['ID'], 'NAME' => $key, 'VALUE' => $value);
+            SQLUpdate('settings', $rec);
         } else {
-            SQLInsert('settings', array('NAME' => $key, 'VALUE' => $value));
+            $rec = array('NAME' => $key, 'VALUE' => $value);
+            SQLInsert('settings', $rec);
         }
     }
 
