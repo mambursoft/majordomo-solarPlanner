@@ -31,20 +31,14 @@ include_once("./lib/threads.php");
 
 require_once(dirname(__FILE__) . '/../modules/solarplanner/lib/autoload.php');
 require_once(dirname(__FILE__) . '/../modules/solarplanner/lib/MajorDoMo/SqlForecastStore.php');
+// Make the module class available to the cycle so getConfig() works here too.
+// Without this, sp_load_config() could not read the saved settings and every
+// plan degraded to "no_forecast" with no providers attempted.
+@include_once(dirname(__FILE__) . '/../modules/solarplanner/solarplanner.class.php');
 
-use SolarPlanner\Common\TimeGrid;
-use SolarPlanner\Simulation\BatteryModel;
-use SolarPlanner\Forecast\HttpClient;
-use SolarPlanner\Forecast\QuotaManager;
-use SolarPlanner\Forecast\PvModel;
-use SolarPlanner\Forecast\OpenMeteoAdapter;
-use SolarPlanner\Forecast\ForecastSolarAdapter;
-use SolarPlanner\Forecast\SolcastAdapter;
-use SolarPlanner\MajorDoMo\PlannerService;
-use SolarPlanner\MajorDoMo\SqlForecastStore;
-use SolarPlanner\MajorDoMo\Config as SpConfig;
 use SolarPlanner\Telemetry\TelemetryCollector;
 use SolarPlanner\Inverter\MdmPropertyInverterAdapter;
+use SolarPlanner\MajorDoMo\PlanRunner;
 
 set_time_limit(0);
 
@@ -95,34 +89,62 @@ function sp_cfg($key, $default = null)
 function sp_load_config()
 {
     $cfg = array();
+    // Primary: the module object (same getConfig/saveConfig as the UI).
     if (class_exists('solarplanner')) {
-        $m = new solarplanner();
-        if (method_exists($m, 'getConfig')) {
-            $m->getConfig();
-            if (is_array($m->config)) {
-                $cfg = $m->config;
+        try {
+            $m = new solarplanner();
+            if (method_exists($m, 'getConfig')) {
+                $m->getConfig();
+                if (is_array($m->config)) {
+                    $cfg = $m->config;
+                }
+            }
+        } catch (\Throwable $e) {
+            echo date("H:i:s") . " [SolarPlanner] config via class failed: " . $e->getMessage() . "\n";
+        }
+    } else {
+        echo date("H:i:s") . " [SolarPlanner] WARNING: solarplanner class not loaded in cycle context.\n";
+    }
+
+    // Fallback: read the module's saved settings directly from the DB so the
+    // cycle still works even if the class could not be instantiated.
+    if (empty($cfg)) {
+        $cfg = sp_load_config_fallback();
+    }
+    return is_array($cfg) ? $cfg : array();
+}
+
+/**
+ * Read module settings straight from MajorDoMo's settings storage, independent
+ * of the module class. MajorDoMo stores module config in the 'settings' table
+ * under key "moduleConfig_<name>" (serialized) in most builds; we also probe a
+ * couple of known variants to be resilient across versions.
+ */
+function sp_load_config_fallback()
+{
+    $candidates = array();
+    $has = SQLSelectOne("SHOW TABLES LIKE 'settings'");
+    if ($has) {
+        foreach (array('moduleConfig_solarplanner', 'solarplanner_config', 'ModuleConfig_solarplanner') as $key) {
+            $row = SQLSelectOne("SELECT VALUE FROM settings WHERE NAME='" . DBSafe($key) . "'");
+            if ($row && isset($row['VALUE']) && $row['VALUE'] !== '') {
+                $candidates[] = $row['VALUE'];
             }
         }
     }
-    return $cfg;
-}
-
-function sp_build_battery(array $cfg)
-{
-    $count = isset($cfg['BATTERY_COUNT']) ? (float)$cfg['BATTERY_COUNT'] : 0;
-    $perUnit = isset($cfg['BATTERY_CAPACITY_KWH']) ? (float)$cfg['BATTERY_CAPACITY_KWH'] : 0;
-    // BATTERY_CAPACITY_KWH is treated as total available capacity here.
-    $capacity = $perUnit > 0 ? $perUnit : max(1.0, $count * 10.0);
-    return new BatteryModel(array(
-        'capacity_kwh' => $capacity,
-        'min_soc_pct' => isset($cfg['MIN_SOC_PCT']) ? (float)$cfg['MIN_SOC_PCT'] : 10,
-        'reserve_soc_pct' => isset($cfg['RESERVE_SOC_PCT']) ? (float)$cfg['RESERVE_SOC_PCT'] : 20,
-        'max_soc_pct' => isset($cfg['MAX_SOC_PCT']) ? (float)$cfg['MAX_SOC_PCT'] : 100,
-        'max_charge_kw' => isset($cfg['MAX_CHARGE_KW']) ? (float)$cfg['MAX_CHARGE_KW'] : 5,
-        'max_discharge_kw' => isset($cfg['MAX_DISCHARGE_KW']) ? (float)$cfg['MAX_DISCHARGE_KW'] : 5,
-        'eta_charge' => isset($cfg['ETA_CHARGE']) ? (float)$cfg['ETA_CHARGE'] : 0.95,
-        'eta_discharge' => isset($cfg['ETA_DISCHARGE']) ? (float)$cfg['ETA_DISCHARGE'] : 0.95,
-    ));
+    foreach ($candidates as $raw) {
+        $data = @unserialize($raw);
+        if (is_array($data) && !empty($data)) {
+            echo date("H:i:s") . " [SolarPlanner] config loaded via settings fallback.\n";
+            return $data;
+        }
+        $json = json_decode($raw, true);
+        if (is_array($json) && !empty($json)) {
+            return $json;
+        }
+    }
+    echo date("H:i:s") . " [SolarPlanner] WARNING: no saved config found; using defaults.\n";
+    return array();
 }
 
 function sp_collect_telemetry()
@@ -174,136 +196,34 @@ function sp_load_history($hours = 336)
 function sp_run_plan()
 {
     $cfg = sp_load_config();
-    $tz = isset($cfg['TIMEZONE']) ? $cfg['TIMEZONE'] : 'Europe/Kyiv';
-    $step = isset($cfg['GRID_STEP_MIN']) ? (int)$cfg['GRID_STEP_MIN'] : 30;
-    $grid = new TimeGrid($tz, in_array($step, array(15, 30, 60), true) ? $step : 30);
-    $batt = sp_build_battery($cfg);
-
     $store = new SqlForecastStore();
-    $quota = new QuotaManager();
-    $http = new HttpClient(15, 2, false);
 
-    // PV arrays from private config.
-    $arrays = array();
-    if (!empty($cfg['PV_ARRAYS_JSON'])) {
-        $decoded = json_decode($cfg['PV_ARRAYS_JSON'], true);
-        if (is_array($decoded)) {
-            $arrays = $decoded;
-        }
-    }
-    if (empty($arrays)) {
-        // Conservative placeholder so the cycle can run read-only; real arrays
-        // must be configured before trusting PV numbers.
-        $arrays = array(array('array_id' => 'a1', 'kwp' => 3.2, 'tilt_deg' => 40, 'azimuth_module_deg' => 180));
-    }
-
-    $site = array(
-        'lat' => isset($cfg['LATITUDE']) ? (float)$cfg['LATITUDE'] : 50.45,
-        'lon' => isset($cfg['LONGITUDE']) ? (float)$cfg['LONGITUDE'] : 30.52,
-        'arrays' => $arrays,
-        'tz' => $tz,
-    );
-    $pv = new PvModel($arrays, 0.0);
-
-    $now = time();
-    // Horizon: from now until the day-after-tomorrow cheap window end (36-48h).
-    $from = $now;
-    $to = $now + 44 * 3600;
-
-    $providerRuns = array();
-    $unavailable = array();
-
-    if (!empty($cfg['OPEN_METEO_ENABLED'])) {
-        $a = new OpenMeteoAdapter($http, $quota, $pv, $site, 'open_meteo');
-        $r = $a->fetch($from, $to, false);
-        if ($r['run']) {
-            $store->saveForecastRun($r['run']->toArray());
-            $providerRuns[] = array('run' => $r['run'], 'mae' => null, 'obs' => 0, 'weather_model' => 'open-meteo');
-        } else {
-            $unavailable[] = 'open_meteo:' . $r['detail'];
-        }
-    }
-    if (!empty($cfg['FORECAST_SOLAR_ENABLED'])) {
-        $key = isset($cfg['FORECAST_SOLAR_API_KEY']) ? $cfg['FORECAST_SOLAR_API_KEY'] : null;
-        $a = new ForecastSolarAdapter($http, $quota, $site, $key ?: null, 'forecast_solar');
-        $r = $a->fetch($from, $to, false);
-        if ($r['run']) {
-            $store->saveForecastRun($r['run']->toArray());
-            $providerRuns[] = array('run' => $r['run'], 'mae' => null, 'obs' => 0, 'weather_model' => 'forecast_solar');
-        } else {
-            $unavailable[] = 'forecast_solar:' . $r['detail'];
-        }
-    }
-    if (!empty($cfg['SOLCAST_ENABLED']) && !empty($cfg['SOLCAST_API_KEY']) && !empty($cfg['SOLCAST_RESOURCE_IDS'])) {
-        $ids = array_filter(array_map('trim', explode(',', $cfg['SOLCAST_RESOURCE_IDS'])));
-        $a = new SolcastAdapter($http, $quota, $ids, $cfg['SOLCAST_API_KEY'], 'solcast');
-        $r = $a->fetch($from, $to, false);
-        if ($r['run']) {
-            $store->saveForecastRun($r['run']->toArray());
-            $providerRuns[] = array('run' => $r['run'], 'mae' => null, 'obs' => 0, 'weather_model' => 'solcast');
-        } else {
-            $unavailable[] = 'solcast:' . $r['detail'];
-        }
-    }
-
-    // Current SOC from telemetry.
-    $socRow = SQLSelectOne("SELECT BATTERY_SOC_PCT FROM solarplanner_telemetry WHERE BATTERY_SOC_PCT IS NOT NULL ORDER BY SAMPLE_UTC DESC LIMIT 1");
-    $startSoc = ($socRow && $socRow['BATTERY_SOC_PCT'] !== null) ? (float)$socRow['BATTERY_SOC_PCT'] : $batt->reserveSocPct;
-
-    $history = sp_load_history();
-
-    $svcCfg = array(
-        'tariff_cheap_price' => isset($cfg['TARIFF_CHEAP_PRICE']) ? (float)$cfg['TARIFF_CHEAP_PRICE'] : 0,
-        'tariff_day_price' => isset($cfg['TARIFF_DAY_PRICE']) ? (float)$cfg['TARIFF_DAY_PRICE'] : 0,
-        'cheap_start_hour' => isset($cfg['CHEAP_START_HOUR']) ? (int)$cfg['CHEAP_START_HOUR'] : 23,
-        'cheap_end_hour' => isset($cfg['CHEAP_END_HOUR']) ? (int)$cfg['CHEAP_END_HOUR'] : 7,
-        'mode' => isset($cfg['MODE']) ? $cfg['MODE'] : 'reach_full',
-        'soc_step_pct' => isset($cfg['SOC_STEP_PCT']) ? (float)$cfg['SOC_STEP_PCT'] : 5,
-        'allow_export' => !empty($cfg['ALLOW_EXPORT']),
-        'ensemble_method' => isset($cfg['ENSEMBLE_METHOD']) ? $cfg['ENSEMBLE_METHOD'] : 'median',
-        'tou_slots' => 6,
-    );
-    $svc = new PlannerService($batt, $grid, $svcCfg);
-
-    if (empty($providerRuns)) {
-        // Safe fallback: no forecast available. Do not invent accuracy.
-        $plan = array('status' => 'no_forecast', 'reason' => 'all providers unavailable',
-            'unavailable_providers' => $unavailable);
-        $store->savePlanningRun($plan);
-        sp_publish_properties($plan, $cfg);
-        return $plan;
-    }
-
-    $plan = $svc->makePlan($startSoc, $providerRuns, $history, $from, $to, array(
-        'unavailable_providers' => $unavailable,
+    // Delegate to the shared PlanRunner so the cycle and the UI "Run plan"
+    // button behave identically and produce the same diagnostics.
+    $plan = PlanRunner::run($cfg, $store, array(
+        'get_soc' => 'sp_current_soc',
+        'get_history' => 'sp_load_history',
+        'publish' => 'sp_publish_properties',
+        'say' => function ($text) { if (function_exists('say')) { @say($text, 1); } },
     ));
-    $compiled = $svc->compileAndVerify($plan);
-    $plan['tou_compiled'] = $compiled;
 
-    $store->savePlanningRun($plan);
-    if (isset($compiled['compile']['slots'])) {
+    // Persist compiled TOU slots for the history table (UI consumes this).
+    if (isset($plan['tou_compiled']['compile']['slots'])) {
         SQLInsert('solarplanner_tou_plans', array(
             'PLAN_RUN_ID' => 0,
-            'SLOTS_JSON' => json_encode($compiled['compile']['slots']),
-            'COMPILED_OK' => !empty($compiled['accurate']) ? 1 : 0,
+            'SLOTS_JSON' => json_encode($plan['tou_compiled']['compile']['slots']),
+            'COMPILED_OK' => !empty($plan['tou_compiled']['accurate']) ? 1 : 0,
             'CREATED' => date('Y-m-d H:i:s'),
         ));
     }
-
-    sp_publish_properties($plan, $cfg);
-
-    // NEVER write to the inverter unless armed with valid approval. Shadow mode
-    // computes and stores only. Explain the plan over TTS if configured.
-    $controlMode = isset($cfg['CONTROL_MODE']) ? $cfg['CONTROL_MODE'] : 'shadow';
-    if ($controlMode !== 'armed') {
-        $store->audit('shadow_plan', array('mode' => $controlMode, 'status' => $plan['status']));
-    }
-
-    if (function_exists('say') && isset($plan['explanation_obj']['text']) && !empty($cfg['ANNOUNCE_PLAN'])) {
-        @say($plan['explanation_obj']['text'], 1);
-    }
-
     return $plan;
+}
+
+/** Latest battery SOC from telemetry, or null if none (never a fake 0). */
+function sp_current_soc()
+{
+    $row = SQLSelectOne("SELECT BATTERY_SOC_PCT FROM solarplanner_telemetry WHERE BATTERY_SOC_PCT IS NOT NULL ORDER BY SAMPLE_UTC DESC LIMIT 1");
+    return ($row && $row['BATTERY_SOC_PCT'] !== null) ? (float)$row['BATTERY_SOC_PCT'] : null;
 }
 
 function sp_publish_properties(array $plan, array $cfg)

@@ -53,6 +53,7 @@
     <li class="[#if VIEW_MODE=="providers"#]active[#endif#]"><a href="?view_mode=providers"><span class="glyphicon glyphicon-cloud"></span> <#LANG_SP_PROVIDERS#></a></li>
     <li class="[#if VIEW_MODE=="deye"#]active[#endif#]"><a href="?view_mode=deye"><span class="glyphicon glyphicon-flash"></span> <#LANG_SP_DEYE#></a></li>
     <li class="[#if VIEW_MODE=="safety"#]active[#endif#]"><a href="?view_mode=safety"><span class="glyphicon glyphicon-lock"></span> <#LANG_SP_SAFETY#></a></li>
+    <li class="[#if VIEW_MODE=="diagnostics"#]active[#endif#]"><a href="?view_mode=diagnostics"><span class="glyphicon glyphicon-wrench"></span> <#LANG_SP_DIAG#></a></li>
     <li class="[#if VIEW_MODE=="settings"#]active[#endif#]"><a href="?view_mode=settings"><span class="glyphicon glyphicon-cog"></span> <#LANG_SP_SETTINGS#></a></li>
   </ul>
 
@@ -248,6 +249,62 @@
           [#end STATES#]
           </tbody>
         </table>
+      </div>
+    </div>
+  [#endif#]
+
+  <!-- ===================== DIAGNOSTICS ===================== -->
+  [#if VIEW_MODE=="diagnostics"#]
+    [#if DIAG_ERROR#]
+      <div class="alert alert-danger"><#LANG_SP_DIAG_FAIL#>: [#DIAG_ERROR#]</div>
+    [#endif#]
+
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <strong><span class="glyphicon glyphicon-wrench"></span> <#LANG_SP_DIAG_ENV_TITLE#></strong>
+        <a href="?view_mode=diagnostics" class="btn btn-default btn-xs pull-right"><span class="glyphicon glyphicon-refresh"></span> <#LANG_SP_DIAG_RECHECK#></a>
+      </div>
+      <div class="panel-body">
+        <p class="text-muted" style="margin-top:0;"><#LANG_SP_DIAG_INTRO#></p>
+        <table class="table table-condensed">
+          <tbody>
+          [#begin DIAG_CHECKS#]
+            <tr>
+              <td style="width:40%;">[#LABEL#]</td>
+              <td style="width:15%;"><span class="label [#BADGE#]">[#MARK#]</span></td>
+              <td>[#VALUE#]</td>
+            </tr>
+          [#end DIAG_CHECKS#]
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading"><strong><span class="glyphicon glyphicon-cloud"></span> <#LANG_SP_DIAG_PROV_TITLE#></strong>
+        &nbsp; <span class="label [#if DIAG_USABLE="0"#]label-danger[#else#]label-success[#endif#]"><#LANG_SP_DIAG_USABLE#>: [#DIAG_USABLE#]</span>
+      </div>
+      <div class="panel-body">
+        <table class="table table-striped table-condensed">
+          <thead><tr>
+            <th><#LANG_SP_DIAG_COL_PROV#></th>
+            <th><#LANG_SP_STATES_COL_CODE#></th>
+            <th><#LANG_SP_DIAG_COL_RESULT#></th>
+            <th><#LANG_SP_PV_TOMORROW#></th>
+          </tr></thead>
+          <tbody>
+          [#begin DIAG_PROVIDERS#]
+            <tr>
+              <td><strong>[#NAME#]</strong></td>
+              <td><span class="label [#BADGE#]">[#STATUS#]</span></td>
+              <td style="font-size:13px;">[#DETAIL#]</td>
+              <td>[#TOTAL#] <small class="text-muted">([#INTERVALS#])</small></td>
+            </tr>
+          [#end DIAG_PROVIDERS#]
+          </tbody>
+        </table>
+        <button class="btn btn-primary" onclick="spRunPlan()"><span class="glyphicon glyphicon-refresh"></span> <#LANG_SP_RUN_PLAN#></button>
+        <span class="text-muted" style="margin-left:10px;"><#LANG_SP_DIAG_RUNPLAN_HINT#></span>
       </div>
     </div>
   [#endif#]

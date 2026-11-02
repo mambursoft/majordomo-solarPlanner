@@ -113,7 +113,7 @@ class HttpClient
         foreach ($headers as $k => $v) {
             $hdr[] = $k . ': ' . $v;
         }
-        curl_setopt_array($ch, array(
+        $opts = array(
             CURLOPT_URL => $url,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => false,
@@ -123,12 +123,48 @@ class HttpClient
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_USERAGENT => 'majordomo-solarPlanner/1.0',
-        ));
+        );
+        // If php.ini has no CA bundle configured (curl.cainfo/openssl.cafile
+        // empty), point curl at a common system CA file. This keeps TLS
+        // verification ON while fixing "unable to get local issuer certificate"
+        // on hosts whose php.ini lacks a CA path (seen on some RPi/Windows PHP).
+        // Verification is never disabled.
+        if (!ini_get('curl.cainfo') && !ini_get('openssl.cafile')) {
+            $ca = self::detectCaBundle();
+            if ($ca !== null) {
+                $opts[CURLOPT_CAINFO] = $ca;
+            }
+        }
+        curl_setopt_array($ch, $opts);
         $body = curl_exec($ch);
         $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $err = curl_errno($ch) ? curl_error($ch) : null;
         curl_close($ch);
         return array('status' => $status, 'body' => $body === false ? '' : $body, 'error' => $err, 'headers' => array());
+    }
+
+    /** Locate a system CA bundle on common OS paths. Returns null if none found. */
+    private static function detectCaBundle()
+    {
+        static $cached = false;
+        if ($cached !== false) {
+            return $cached;
+        }
+        $candidates = array(
+            '/etc/ssl/certs/ca-certificates.crt',   // Debian/Raspbian/Ubuntu
+            '/etc/pki/tls/certs/ca-bundle.crt',     // RHEL/CentOS
+            '/etc/ssl/ca-bundle.pem',               // SUSE
+            '/usr/local/share/certs/ca-root-nss.crt', // FreeBSD
+            '/etc/ssl/cert.pem',                    // macOS / Alpine
+        );
+        foreach ($candidates as $p) {
+            if (@is_readable($p)) {
+                $cached = $p;
+                return $p;
+            }
+        }
+        $cached = null;
+        return null;
     }
 
     private function streamGet($url, array $headers)

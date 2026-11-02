@@ -151,6 +151,17 @@ $dictionary = array(
     'SP_DEYE_NOSCAN'       => 'The module does not scan the network or connect to the inverter automatically: access is configured by hand, writing is off until armed mode.',
     'SP_H_DEYE_TRANSPORT'  => 'mdm_property — read via existing MajorDoMo objects (recommended to start). TCP 8899 (logger) and Modbus TCP 502 are different protocols.',
     'SP_H_DEYE_HOST'       => 'IP or host of the inverter/logger. Stored privately, not published.',
+
+    'SP_DIAG'               => 'Diagnostics',
+    'SP_DIAG_FAIL'          => 'Diagnostics could not run',
+    'SP_DIAG_ENV_TITLE'     => 'Environment check',
+    'SP_DIAG_INTRO'         => 'A quick check of why a forecast might be missing: config, coordinates, arrays, outbound internet.',
+    'SP_DIAG_RECHECK'       => 'Re-check',
+    'SP_DIAG_PROV_TITLE'    => 'Forecast providers — last attempt',
+    'SP_DIAG_USABLE'        => 'Usable providers',
+    'SP_DIAG_COL_PROV'      => 'Provider',
+    'SP_DIAG_COL_RESULT'    => 'Result',
+    'SP_DIAG_RUNPLAN_HINT'  => 'Compute the plan now and see the result immediately (shadow mode writes nothing to the inverter).',
 );
 
 foreach ($dictionary as $k => $v) {

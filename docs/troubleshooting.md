@@ -16,12 +16,28 @@ PV arrays, and verify the device profile. Until then only observe/shadow work.
 
 ## No forecast / plan status `no_forecast`
 
-- Confirm at least one provider is enabled and reachable.
-- Open-Meteo needs outbound HTTPS. The SSRF guard blocks private/reserved
-  addresses by default.
-- Check `solarplanner_command_audit` and the cycle stdout for provider errors
-  (`quota`, `http`, `schema`). An exhausted quota or an open circuit breaker is
-  reported per provider; others keep working.
+**First open the Diagnostics tab.** It runs an environment self-check and a live
+provider attempt and shows the specific reason. Common causes it surfaces:
+
+- **No provider enabled** — enable at least Open-Meteo on the Settings tab.
+- **No outbound HTTPS** — the server cannot reach the internet. The most common
+  variant is a TLS "unable to get local issuer certificate" error, i.e. the CA
+  bundle is not configured. On Raspbian: `sudo apt-get install ca-certificates`,
+  or set `curl.cainfo` in php.ini. The module now auto-detects common CA paths,
+  but a missing/old bundle still needs fixing at the OS level.
+- **Coordinates not set** — without latitude/longitude the module falls back to
+  a default location; set your real coordinates (privately) for an accurate
+  forecast. The Diagnostics tab shows "coordinates: config" vs "fallback".
+- **Provider error** — the per-provider row shows the exact HTTP status / reason.
+  An exhausted quota or an open circuit breaker is reported per provider; the
+  others keep working.
+
+Press **Run plan** on the Overview or Diagnostics tab to recompute immediately
+and see the live result (shadow mode writes nothing to the inverter).
+
+If the background cycle cannot load the saved settings it logs a warning to its
+stdout and falls back to reading them directly from the database, so a plan is
+still attempted.
 
 ## SOC looks wrong / writes refused
 

@@ -10,7 +10,7 @@
  * @author     mambursoft
  * @copyright  2026 mambursoft
  * @license    MIT
- * @version    1.0.3
+ * @version    1.0.4
  */
 
 require_once(dirname(__FILE__) . '/lib/autoload.php');
@@ -160,8 +160,8 @@ class solarplanner extends module
                     'REPOSITORY_URL'  => 'https://github.com/mambursoft/majordomo-solarPlanner',
                     'DESCRIPTION_RU'  => $descRu,
                     'DESCRIPTION_EN'  => $descEn,
-                    'CURRENT_VERSION' => '1.0.3',
-                    'LATEST_VERSION'  => '1.0.3',
+                    'CURRENT_VERSION' => '1.0.4',
+                    'LATEST_VERSION'  => '1.0.4',
                     'IS_INSTALLED'    => 1,
                     'LATEST_UPDATE'   => date('Y-m-d H:i:s'),
                 );
@@ -171,7 +171,7 @@ class solarplanner extends module
                 $pRec['AUTHOR']         = 'mambursoft';
                 $pRec['DESCRIPTION_RU'] = $descRu;
                 $pRec['DESCRIPTION_EN'] = $descEn;
-                $pRec['CURRENT_VERSION']= '1.0.3';
+                $pRec['CURRENT_VERSION']= '1.0.4';
                 $pRec['IS_INSTALLED']   = 1;
                 SQLUpdate('plugins', $pRec);
             }
@@ -363,6 +363,13 @@ EOD;
             $this->view_mode = 'settings';
         }
 
+        if ($action == 'run_diagnostics') {
+            $res = $this->runDiagnostics();
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode($res);
+            exit;
+        }
+
         if ($action == 'list_properties') {
             // AJAX: return properties of a given object for the mapping picker.
             global $object;
@@ -532,6 +539,40 @@ EOD;
         );
     }
 
+    /**
+     * Build a full diagnostic report (environment self-check + per-provider
+     * forecast attempt) without necessarily saving a plan. Used by the
+     * Diagnostics tab and its "Re-check" button.
+     */
+    function runDiagnostics()
+    {
+        $this->getConfig();
+        require_once(dirname(__FILE__) . '/lib/MajorDoMo/DiagnosticsService.php');
+        require_once(dirname(__FILE__) . '/lib/MajorDoMo/SqlForecastStore.php');
+        $cfg = is_array($this->config) ? $this->config : array();
+        $diag = new \SolarPlanner\MajorDoMo\DiagnosticsService($cfg);
+        $now = time();
+        $store = new \SolarPlanner\MajorDoMo\SqlForecastStore();
+        try {
+            $collected = $diag->collect($now, $now + 44 * 3600, $store);
+        } catch (\Throwable $e) {
+            return array('ok' => false, 'error' => $e->getMessage());
+        }
+        $usable = 0;
+        foreach ($collected['providers'] as $p) {
+            if ($p['status'] === 'fresh' || $p['status'] === 'partial') {
+                $usable++;
+            }
+        }
+        return array(
+            'ok' => true,
+            'usable_providers' => $usable,
+            'providers' => $collected['providers'],
+            'environment' => $collected['env'],
+            'site' => $collected['site'],
+        );
+    }
+
     /** List MajorDoMo objects (TITLE) for the picker dropdowns. */
     private function listObjects()
     {
@@ -636,14 +677,90 @@ EOD;
     }
 
     /**
-     * Trigger a planning run (shadow calculation; never writes in shadow mode).
-     * Delegates heavy work to the cycle via a control flag, and also computes a
-     * quick plan inline for the UI when enough config exists.
+     * Run a planning pass synchronously, right now, so the UI can show the real
+     * result (or the specific reason it failed) immediately — not just a flag
+     * for the background cycle. Also nudges the cycle for the next scheduled run.
      */
     private function triggerPlan()
     {
+        $this->getConfig();
+        require_once(dirname(__FILE__) . '/lib/MajorDoMo/SqlForecastStore.php');
+        require_once(dirname(__FILE__) . '/lib/MajorDoMo/DiagnosticsService.php');
+        require_once(dirname(__FILE__) . '/lib/MajorDoMo/PlanRunner.php');
+
+        $cfg = is_array($this->config) ? $this->config : array();
+        $store = new \SolarPlanner\MajorDoMo\SqlForecastStore();
+        $self = $this;
+
+        try {
+            $plan = \SolarPlanner\MajorDoMo\PlanRunner::run($cfg, $store, array(
+                'get_soc' => function () {
+                    $row = SQLSelectOne("SELECT BATTERY_SOC_PCT FROM solarplanner_telemetry WHERE BATTERY_SOC_PCT IS NOT NULL ORDER BY SAMPLE_UTC DESC LIMIT 1");
+                    return ($row && $row['BATTERY_SOC_PCT'] !== null) ? (float)$row['BATTERY_SOC_PCT'] : null;
+                },
+                'get_history' => function () {
+                    $since = time() - 336 * 3600;
+                    $rows = SQLSelect("SELECT SAMPLE_UTC, LOAD_POWER_KW FROM solarplanner_telemetry WHERE SAMPLE_UTC >= $since AND LOAD_POWER_KW IS NOT NULL ORDER BY SAMPLE_UTC ASC");
+                    $h = array();
+                    if (is_array($rows)) {
+                        foreach ($rows as $r) {
+                            $h[] = array('utc' => (int)$r['SAMPLE_UTC'], 'load_kw' => (float)$r['LOAD_POWER_KW'], 'valid' => true);
+                        }
+                    }
+                    return $h;
+                },
+                'publish' => function ($plan, $cfg) use ($self) {
+                    $self->publishPlanProperties($plan, $cfg);
+                },
+            ));
+        } catch (\Throwable $e) {
+            return array('success' => false, 'message' => 'Помилка розрахунку: ' . $e->getMessage());
+        }
+
         setGlobal('cycle_solarplannerControl', 'plan_now');
-        return array('success' => true, 'message' => 'Запит на розрахунок плану відправлено циклу.');
+
+        $status = isset($plan['status']) ? $plan['status'] : 'unknown';
+        if ($status === 'feasible') {
+            $msg = 'План розраховано. TargetSocAt07 = ' . (isset($plan['target_soc_at_07']) ? $plan['target_soc_at_07'] : '?') . '%.';
+        } elseif ($status === 'no_forecast') {
+            $msg = 'Прогноз недоступний. Причина: ' . (isset($plan['reason']) ? $plan['reason'] : 'невідомо') . ' Деталі — на вкладці «Діагностика».';
+        } elseif ($status === 'infeasible') {
+            $msg = 'План нездійсненний за поточних обмежень. Деталі — на вкладці «План».';
+        } else {
+            $msg = 'Статус плану: ' . $status . '. Деталі — на вкладці «Діагностика».';
+        }
+        return array('success' => true, 'status' => $status, 'message' => $msg);
+    }
+
+    /**
+     * Publish plan results to the SolarPlanner.* MajorDoMo properties (used by
+     * the inline run; mirrors the cycle's publisher).
+     */
+    public function publishPlanProperties($plan, $cfg)
+    {
+        $set = function ($prop, $val) { setGlobal($prop, $val); };
+        $set('SolarPlanner.Enabled', 1);
+        $set('SolarPlanner.ControlMode', isset($cfg['CONTROL_MODE']) ? $cfg['CONTROL_MODE'] : 'shadow');
+        $set('SolarPlanner.Status', isset($plan['status']) ? $plan['status'] : 'unknown');
+        $set('SolarPlanner.LastPlanAt', date('Y-m-d H:i:s'));
+        $map = array(
+            'target_soc_at_07' => 'SolarPlanner.TargetSocAt07',
+            'planned_grid_charge_kwh' => 'SolarPlanner.PlannedGridChargeKwh',
+            'planned_night_import_kwh' => 'SolarPlanner.PlannedNightImportKwh',
+            'expected_day_import_kwh' => 'SolarPlanner.ExpectedDayImportKwh',
+            'pv_tomorrow_kwh' => 'SolarPlanner.ForecastPvTomorrowKwh',
+            'pv_tomorrow_low_kwh' => 'SolarPlanner.ForecastPvTomorrowLowKwh',
+            'pv_tomorrow_high_kwh' => 'SolarPlanner.ForecastPvTomorrowHighKwh',
+            'load_tomorrow_kwh' => 'SolarPlanner.ForecastLoadTomorrowKwh',
+        );
+        foreach ($map as $k => $prop) {
+            if (isset($plan[$k])) {
+                $set($prop, $plan[$k]);
+            }
+        }
+        if (isset($plan['explanation_obj']['text'])) {
+            $set('SolarPlanner.PlanExplanation', $plan['explanation_obj']['text']);
+        }
     }
 
     private function populateView(&$out)
@@ -750,5 +867,63 @@ EOD;
         $cycleRun = (int)gg('cycle_solarplannerRun');
         $out['CYCLE_ALIVE'] = (time() - $cycleRun) < 120 ? 1 : 0;
         $out['CYCLE_TIME']  = $cycleRun > 0 ? date('Y-m-d H:i:s', $cycleRun) : 'Ніколи';
+
+        // Diagnostics tab: run the self-check and flatten it for the template.
+        if ($vm === 'diagnostics') {
+            $this->populateDiagnostics($out);
+        }
+    }
+
+    /** Flatten the diagnostic report into template-friendly rows. */
+    private function populateDiagnostics(&$out)
+    {
+        $rep = $this->runDiagnostics();
+        if (empty($rep['ok'])) {
+            $out['DIAG_ERROR'] = htmlspecialchars(isset($rep['error']) ? $rep['error'] : 'unknown');
+            return;
+        }
+        $env = $rep['environment'];
+
+        // Environment checks as a list of [label, ok(1/0), value].
+        $checks = array(
+            array('Конфігурацію завантажено', $env['config_loaded'], $env['config_keys'] . ' ключів'),
+            array('Увімкнено провайдер(и)', $env['any_provider_enabled'], $env['any_provider_enabled'] ? 'так' : 'ні'),
+            array('Координати задано', $env['coordinates_set'], $env['coordinates_source']),
+            array('PV-масиви задано', $env['pv_arrays_set'], $env['pv_arrays_set'] ? 'config' : 'заглушка'),
+            array('Вихідний HTTPS', $env['outbound_https'], $env['outbound_https_detail']),
+            array('cURL доступний', $env['curl_available'], $env['curl_available'] ? 'так' : 'ні (fallback streams)'),
+            array('OpenSSL доступний', $env['openssl_available'], $env['openssl_available'] ? 'так' : 'ні'),
+            array('Device profile перевірено', $env['profile_verified'], $env['profile_verified'] ? 'так' : 'ні (armed заблоковано)'),
+        );
+        $rows = array();
+        foreach ($checks as $c) {
+            $rows[] = array(
+                'LABEL' => htmlspecialchars($c[0]),
+                'OK' => $c[1] ? 1 : 0,
+                'BADGE' => $c[1] ? 'label-success' : 'label-warning',
+                'MARK' => $c[1] ? 'OK' : 'УВАГА',
+                'VALUE' => htmlspecialchars((string)$c[2]),
+            );
+        }
+        $out['DIAG_CHECKS'] = $rows;
+
+        // Provider rows.
+        $prov = array();
+        $labels = array('open_meteo' => 'Open-Meteo', 'forecast_solar' => 'Forecast.Solar', 'solcast' => 'Solcast');
+        foreach ($rep['providers'] as $code => $p) {
+            $ok = ($p['status'] === 'fresh' || $p['status'] === 'partial');
+            $badge = $ok ? 'label-success' : ($p['status'] === 'disabled' ? 'label-default' : 'label-danger');
+            $prov[] = array(
+                'NAME' => isset($labels[$code]) ? $labels[$code] : $code,
+                'CODE' => $code,
+                'STATUS' => htmlspecialchars($p['status']),
+                'BADGE' => $badge,
+                'DETAIL' => htmlspecialchars($p['detail']),
+                'TOTAL' => ($p['total_kwh'] === null ? '—' : $p['total_kwh'] . ' кВт·год'),
+                'INTERVALS' => (int)$p['intervals'],
+            );
+        }
+        $out['DIAG_PROVIDERS'] = $prov;
+        $out['DIAG_USABLE'] = (int)$rep['usable_providers'];
     }
 }

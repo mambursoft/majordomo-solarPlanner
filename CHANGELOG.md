@@ -3,6 +3,33 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog; this project uses semantic versioning.
 
+## [1.0.4] - 2026-11-02
+
+### Fixed
+- Root cause of "no forecast / PV = 0" diagnosed and fixed: the background
+  cycle could fail to load the saved module config (the module class was not
+  available in the cycle context), so no provider was ever attempted and every
+  plan degraded to `no_forecast`. The cycle now explicitly loads the module
+  class and falls back to reading the saved settings directly from the DB.
+- `HttpClient` now auto-detects a system CA bundle when php.ini has none
+  (`curl.cainfo`/`openssl.cafile` empty), fixing silent TLS "unable to get local
+  issuer certificate" failures that previously surfaced only as HTTP 0. TLS
+  verification is never disabled.
+
+### Added
+- **Diagnostics tab**: an environment self-check (config loaded? providers
+  enabled? coordinates set? PV arrays set? outbound HTTPS working? cURL/OpenSSL
+  present? profile verified?) with a live outbound probe to Open-Meteo, plus a
+  per-provider result table showing the specific reason each provider did or did
+  not return a forecast. A "Re-check" button re-runs it.
+- **"Run plan" now runs synchronously** from the UI and reports the real status
+  and the specific reason (instead of only flagging the cycle).
+- Shared `PlanRunner` + `DiagnosticsService` so the cycle and the UI produce
+  identical results and diagnostics; every plan result carries a `diagnostics`
+  block, and `no_forecast` now includes a specific, human-readable reason.
+- Actionable Ukrainian hint for CA/SSL problems (how to install ca-certificates
+  / set curl.cainfo).
+
 ## [1.0.3] - 2026-11-01
 
 ### Fixed
