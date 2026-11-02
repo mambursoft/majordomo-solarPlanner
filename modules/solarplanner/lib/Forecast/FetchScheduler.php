@@ -55,6 +55,9 @@ class FetchScheduler
      *   sunrise_utc, sunset_utc        today's daylight window (UTC)
      *   night_start_utc, night_end_utc current/next cheap-tariff window (UTC)
      *   critical_refine_utc            last-useful night top-up time (UTC)
+     *   is_dark                        bool|null authoritative "dark now?" from
+     *                                  DarknessMode.active; overrides the day/night
+     *                                  window test when not null
      * @return array ['fetch'=>bool, 'reason'=>string, 'next_utc'=>int]
      */
     public function shouldFetch($providerId, $nowUtc, $lastFetchUtc, array $ctx)
@@ -77,6 +80,20 @@ class FetchScheduler
 
         $isNight = $this->inWindow($nowUtc, $ctx, 'night_start_utc', 'night_end_utc');
         $isDay = $this->inWindow($nowUtc, $ctx, 'sunrise_utc', 'sunset_utc');
+
+        // If the host tells us whether it is dark right now (DarknessMode.active),
+        // trust it over our own sunrise/sunset estimate: it is the authoritative,
+        // already-computed daylight signal on this machine.
+        //  - dark  => never "day" (PV ~0); night only inside the cheap window.
+        //  - light => it is daytime, regardless of our computed window.
+        if (isset($ctx['is_dark']) && $ctx['is_dark'] !== null) {
+            if ($ctx['is_dark'] === true) {
+                $isDay = false;
+            } else { // explicitly light
+                $isDay = true;
+                $isNight = false;
+            }
+        }
 
         // The interval we aim for right now depends on the phase.
         if ($isNight) {

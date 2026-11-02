@@ -82,6 +82,14 @@ class SolarWindows
         $lead = isset($cfg['critical_refine_lead_min']) ? (int)$cfg['critical_refine_lead_min'] : 20;
         $critical = $best['end_utc'] - $lead * 60;
 
+        // Authoritative "is it dark right now?" from MajorDoMo's DarknessMode.active
+        // property, if the host exposes it. This is cheaper and more reliable than
+        // computing sunrise/sunset ourselves, and lets the scheduler skip daytime
+        // work once the host already knows daylight is gone. null = unknown (the
+        // property is absent), in which case the scheduler falls back to the
+        // sunrise/sunset windows above.
+        $isDark = $this->readDarkness();
+
         return array(
             'sunrise_utc' => $sunrise,
             'sunset_utc' => $sunset,
@@ -89,7 +97,38 @@ class SolarWindows
             'night_end_utc' => $best['end_utc'],
             'critical_refine_utc' => $critical,
             'sun_source' => $source,
+            'is_dark' => $isDark, // true|false|null
         );
+    }
+
+    /**
+     * Read MajorDoMo's DarknessMode.active flag via the injected getter.
+     *
+     * @return bool|null true=dark, false=light, null=property unavailable
+     */
+    private function readDarkness()
+    {
+        if (!is_callable($this->getter)) {
+            return null;
+        }
+        $raw = call_user_func($this->getter, 'DarknessMode.active');
+        if ($raw === null || $raw === '' || $raw === false) {
+            // false here is ambiguous (missing vs. literally "0"); the getter
+            // returns '' / null when the property does not exist, so treat only
+            // those as "unknown". A real 0 arrives as (int|string) 0 below.
+            return ($raw === false) ? false : null;
+        }
+        if (is_bool($raw)) {
+            return $raw;
+        }
+        $s = strtolower(trim((string)$raw));
+        if ($s === '1' || $s === 'true' || $s === 'on' || $s === 'yes') {
+            return true;
+        }
+        if ($s === '0' || $s === 'false' || $s === 'off' || $s === 'no') {
+            return false;
+        }
+        return null;
     }
 
     /** Read and parse a sun property to a UTC timestamp near $nowUtc, or null. */

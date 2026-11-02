@@ -91,3 +91,46 @@ $sw2 = new SolarWindows('Europe/Kyiv', function ($p) { return null; });
 $res2 = $sw2->resolve($now, array(), 50.45);
 T::eq($res2['sun_source'], 'fallback', 'falls back to estimate without properties');
 T::ok($res2['sunset_utc'] > $res2['sunrise_utc'], 'fallback sunset after sunrise');
+
+T::group('DarknessMode.active');
+// SolarWindows reads DarknessMode.active and exposes it as is_dark.
+$swDark = new SolarWindows('Europe/Kyiv', function ($prop) {
+    if (strpos($prop, 'SunRiseTime') !== false) return '06:45';
+    if (strpos($prop, 'SunSetTime') !== false) return '19:10';
+    if (strpos($prop, 'DarknessMode.active') !== false) return '1';
+    return null;
+});
+$rDark = $swDark->resolve($now, array('cheap_start_hour' => 23, 'cheap_end_hour' => 7));
+T::ok($rDark['is_dark'] === true, 'DarknessMode.active=1 -> is_dark true');
+
+$swLight = new SolarWindows('Europe/Kyiv', function ($prop) {
+    if (strpos($prop, 'SunRiseTime') !== false) return '06:45';
+    if (strpos($prop, 'SunSetTime') !== false) return '19:10';
+    if (strpos($prop, 'DarknessMode.active') !== false) return '0';
+    return null;
+});
+$rLight = $swLight->resolve($now, array('cheap_start_hour' => 23, 'cheap_end_hour' => 7));
+T::ok($rLight['is_dark'] === false, 'DarknessMode.active=0 -> is_dark false');
+
+// Property absent -> is_dark null (unknown), scheduler uses the windows.
+$rNull = $sw2->resolve($now, array(), 50.45);
+T::ok($rNull['is_dark'] === null, 'missing DarknessMode -> is_dark null');
+
+// Scheduler: is_dark=false during the computed night window forces "day"
+// cadence (host says it is light, trust it over our window).
+$schedD = new FetchScheduler(array(
+    'open_meteo' => array('min_interval_sec' => 1800, 'day_fetches' => 4, 'night_fetches' => 4),
+));
+$ctxLight = $ctx;
+$ctxLight['is_dark'] = false;
+// A point that falls inside the computed night window but host says light:
+$nightMid = $nightStart + 1800;
+$rLit = $schedD->shouldFetch('open_meteo', $nightMid, $nightMid - 10 * 3600, $ctxLight);
+T::ok(strpos($rLit['reason'], 'night') === false, 'is_dark=false overrides night window (not a night refresh)');
+
+// is_dark=true during daytime window forces "not day".
+$ctxDark = $ctx;
+$ctxDark['is_dark'] = true;
+$dayMid = $day0 + 2 * 3600;
+$rDk = $schedD->shouldFetch('open_meteo', $dayMid, $dayMid - 10 * 3600, $ctxDark);
+T::ok(strpos($rDk['reason'], 'day refresh') === false, 'is_dark=true overrides day window (not a day refresh)');

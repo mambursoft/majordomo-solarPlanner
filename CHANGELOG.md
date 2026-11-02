@@ -3,6 +3,30 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog; this project uses semantic versioning.
 
+## [1.0.9] - 2026-11-02
+
+### Fixed
+- **«Розрахувати план» не запускав розрахунок.** The button's AJAX call used a
+  bare relative URL (`?action=run_plan`), which replaces the whole query string
+  and drops `md=solarplanner`. MajorDoMo routes module pages by `md` (`admin.php`:
+  `if ($md != $app->name) restoreParams()`), so without it the request never
+  reached the module's `admin()` handler and the plan was never computed. The
+  button now builds the request from the current page URL, preserving `md` (and
+  `pd`/`inst`/...), sends `X-Requested-With`, disables itself while running, and
+  reloads so the fresh plan shows. The same fix is applied to the property-map
+  picker's `list_properties` XHR. Verified end-to-end on the live host: the
+  module's `triggerPlan()` returns a real JSON result (`success:true`).
+
+### Added
+- **Use `DarknessMode.active` as the authoritative "is it dark now?" signal.**
+  When MajorDoMo exposes `DarknessMode.active`, the fetch scheduler trusts it
+  over its own sunrise/sunset estimate: when the host reports daylight is gone,
+  daytime refreshes stop; when it reports light, the night cadence is not used.
+  Night forecasts for *tomorrow* are still fetched during the cheap-tariff
+  window (they decide how many kWh to buy), so battery-charge sizing is
+  unaffected. The flag is surfaced on the Diagnostics tab's sun/schedule line.
+  Falls back to the computed sun windows when the property is absent.
+
 ## [1.0.8] - 2026-11-02
 
 ### Fixed

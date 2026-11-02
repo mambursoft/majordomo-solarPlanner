@@ -10,7 +10,7 @@
  * @author     mambursoft
  * @copyright  2026 mambursoft
  * @license    MIT
- * @version    1.0.8
+ * @version    1.0.9
  */
 
 require_once(dirname(__FILE__) . '/lib/autoload.php');
@@ -160,8 +160,8 @@ class solarplanner extends module
                     'REPOSITORY_URL'  => 'https://github.com/mambursoft/majordomo-solarPlanner',
                     'DESCRIPTION_RU'  => $descRu,
                     'DESCRIPTION_EN'  => $descEn,
-                    'CURRENT_VERSION' => '1.0.8',
-                    'LATEST_VERSION'  => '1.0.8',
+                    'CURRENT_VERSION' => '1.0.9',
+                    'LATEST_VERSION'  => '1.0.9',
                     'IS_INSTALLED'    => 1,
                     'LATEST_UPDATE'   => date('Y-m-d H:i:s'),
                 );
@@ -171,7 +171,7 @@ class solarplanner extends module
                 $pRec['AUTHOR']         = 'mambursoft';
                 $pRec['DESCRIPTION_RU'] = $descRu;
                 $pRec['DESCRIPTION_EN'] = $descEn;
-                $pRec['CURRENT_VERSION']= '1.0.8';
+                $pRec['CURRENT_VERSION']= '1.0.9';
                 $pRec['IS_INSTALLED']   = 1;
                 SQLUpdate('plugins', $pRec);
             }
@@ -1073,10 +1073,16 @@ EOD;
                     return '?';
                 }
             };
+            $dark = '';
+            if (isset($sun['is_dark']) && $sun['is_dark'] !== null) {
+                $dark = ' · зараз ' . ($sun['is_dark'] ? 'темно' : 'світло')
+                    . ' (DarknessMode.active)';
+            }
             $out['DIAG_SUN'] = 'Світанок ' . $fmt($sun['sunrise_utc']) . ', захід ' . $fmt($sun['sunset_utc'])
                 . ' · дешеве вікно ' . $fmt($sun['night_start_utc']) . '–' . $fmt($sun['night_end_utc'])
                 . ' · критичне уточнення до ' . $fmt($sun['critical_refine_utc'])
-                . ' · джерело: ' . ($sun['sun_source'] === 'properties' ? 'ThisComputer.SunRise/SunSet' : 'оцінка');
+                . ' · джерело: ' . ($sun['sun_source'] === 'properties' ? 'ThisComputer.SunRise/SunSet' : 'оцінка')
+                . $dark;
         }
     }
 }

@@ -554,10 +554,38 @@
 </div>
 
 <script>
+// Build a URL on top of the CURRENT page URL so the module routing params
+// (md=solarplanner, pd, inst, ...) are preserved. A bare "?action=.." would
+// replace the whole query string and drop md=, so MajorDoMo would not dispatch
+// to this module and the request would hit the generic panel instead.
+function spUrl(extra) {
+  var params = new URLSearchParams(window.location.search);
+  Object.keys(extra || {}).forEach(function(k){ params.set(k, extra[k]); });
+  return window.location.pathname + '?' + params.toString();
+}
 function spRunPlan() {
+  var url = spUrl({ action: 'run_plan', ajax: '1' });
+  var btns = document.querySelectorAll('button[onclick="spRunPlan()"]');
+  btns.forEach(function(b){ b.disabled = true; });
   var x = new XMLHttpRequest();
-  x.open('GET', '?action=run_plan', true);
-  x.onload = function(){ try { var r = JSON.parse(x.responseText); alert(r.message || 'ok'); } catch(e){ alert('ok'); } };
+  x.open('GET', url, true);
+  x.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+  x.onload = function(){
+    btns.forEach(function(b){ b.disabled = false; });
+    var r = null;
+    try { r = JSON.parse(x.responseText); } catch(e) {}
+    if (r && typeof r.message !== 'undefined') {
+      alert(r.message);
+      // reload so the Overview / Plan / Diagnostics tabs show the fresh result
+      setTimeout(function(){ window.location.reload(); }, 150);
+    } else {
+      alert('Не вдалося розрахувати план: сервер повернув несподівану відповідь. Перевірте вкладку «Діагностика».');
+    }
+  };
+  x.onerror = function(){
+    btns.forEach(function(b){ b.disabled = false; });
+    alert('Помилка мережі під час запиту розрахунку плану.');
+  };
   x.send();
 }
 
@@ -652,7 +680,8 @@ function spPmRender(){
 function spLoadProps(objName, propSel, selected){
   if(!objName){ propSel.innerHTML='<option value="">—</option>'; spPmSync(); return; }
   var x = new XMLHttpRequest();
-  x.open('GET', '?action=list_properties&ajax=1&object='+encodeURIComponent(objName), true);
+  x.open('GET', spUrl({ action: 'list_properties', ajax: '1', object: objName }), true);
+  x.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
   x.onload = function(){
     var props = []; try { props = JSON.parse(x.responseText)||[]; } catch(e){}
     var o = '<option value="">—</option>';
