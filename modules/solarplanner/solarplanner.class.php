@@ -10,7 +10,7 @@
  * @author     mambursoft
  * @copyright  2026 mambursoft
  * @license    MIT
- * @version    1.1.2
+ * @version    1.1.3
  */
 
 require_once(dirname(__FILE__) . '/lib/autoload.php');
@@ -160,8 +160,8 @@ class solarplanner extends module
                     'REPOSITORY_URL'  => 'https://github.com/mambursoft/majordomo-solarPlanner',
                     'DESCRIPTION_RU'  => $descRu,
                     'DESCRIPTION_EN'  => $descEn,
-                    'CURRENT_VERSION' => '1.1.2',
-                    'LATEST_VERSION'  => '1.1.2',
+                    'CURRENT_VERSION' => '1.1.3',
+                    'LATEST_VERSION'  => '1.1.3',
                     'IS_INSTALLED'    => 1,
                     'LATEST_UPDATE'   => date('Y-m-d H:i:s'),
                 );
@@ -171,7 +171,7 @@ class solarplanner extends module
                 $pRec['AUTHOR']         = 'mambursoft';
                 $pRec['DESCRIPTION_RU'] = $descRu;
                 $pRec['DESCRIPTION_EN'] = $descEn;
-                $pRec['CURRENT_VERSION']= '1.1.2';
+                $pRec['CURRENT_VERSION']= '1.1.3';
                 $pRec['IS_INSTALLED']   = 1;
                 SQLUpdate('plugins', $pRec);
             }
@@ -446,7 +446,6 @@ EOD;
             'ENSEMBLE_METHOD' => 'ensemble_method', 'TRANSPORT' => 'transport', 'FIRMWARE' => 'firmware',
             'PV_SCALE' => 'pv_scale',
             'LATITUDE' => 'latitude', 'LONGITUDE' => 'longitude',
-            'PV_ARRAYS_JSON' => 'pv_arrays_json', 'PROPERTY_MAP_JSON' => 'property_map_json',
             'DEYE_HOST' => 'deye_host', 'DEYE_PORT' => 'deye_port',
             'SOLCAST_RESOURCE_IDS' => 'solcast_resource_ids',
         );
@@ -454,6 +453,25 @@ EOD;
             if (isset($_POST[$postKey])) {
                 $this->config[$cfgKey] = trim($_POST[$postKey]);
             }
+        }
+
+        // PV arrays / property map: these come from JS-built hidden fields. Guard
+        // against an accidental wipe — if the posted value is empty or an empty
+        // JSON container ([] / {}) but we already have real data stored, keep the
+        // existing data instead of clearing it (e.g. saving from another tab, or
+        // JS that did not run). An explicit non-empty value always overwrites.
+        foreach (array('PV_ARRAYS_JSON' => 'pv_arrays_json', 'PROPERTY_MAP_JSON' => 'property_map_json') as $cfgKey => $postKey) {
+            if (!isset($_POST[$postKey])) {
+                continue;
+            }
+            $val = trim($_POST[$postKey]);
+            $isEmptyish = ($val === '' || $val === '[]' || $val === '{}' || $val === 'null');
+            $existing = isset($this->config[$cfgKey]) ? trim((string)$this->config[$cfgKey]) : '';
+            $existingHasData = ($existing !== '' && $existing !== '[]' && $existing !== '{}' && $existing !== 'null');
+            if ($isEmptyish && $existingHasData) {
+                continue; // keep existing; do not wipe
+            }
+            $this->config[$cfgKey] = $val;
         }
 
         // Cheap-tariff window as HH:MM time inputs (supports minutes, e.g.
@@ -768,19 +786,48 @@ EOD;
         if ($objName === '') {
             return array();
         }
-        $objRec = SQLSelectOne("SELECT ID FROM objects WHERE TITLE='" . DBSafe($objName) . "'");
+        $objRec = SQLSelectOne("SELECT ID, CLASS_ID FROM objects WHERE TITLE='" . DBSafe($objName) . "'");
         if (!$objRec || !$objRec['ID']) {
             return array();
         }
-        $rows = SQLSelect("SELECT TITLE FROM properties WHERE OBJECT_ID=" . (int)$objRec['ID'] . " ORDER BY TITLE ASC");
-        $out = array();
-        if (is_array($rows)) {
-            foreach ($rows as $r) {
-                if (!empty($r['TITLE'])) {
-                    $out[] = $r['TITLE'];
-                }
+        return $this->objectAllProperties((int)$objRec['ID'], (int)(isset($objRec['CLASS_ID']) ? $objRec['CLASS_ID'] : 0));
+    }
+
+    /**
+     * All property names available on an object: its own (OBJECT_ID) PLUS the
+     * ones it inherits from its class chain (CLASS_ID, following PARENT_ID).
+     * MajorDoMo defines most properties at the class level, so querying only
+     * OBJECT_ID misses inherited properties — which is why the picker showed an
+     * incomplete list. Returns a de-duplicated, sorted list of titles.
+     */
+    private function objectAllProperties($objectId, $classId)
+    {
+        $names = array();
+
+        // Own (instance-level) properties.
+        if ($objectId > 0) {
+            $rows = SQLSelect("SELECT TITLE FROM properties WHERE OBJECT_ID=" . (int)$objectId);
+            foreach (($rows ?: array()) as $r) {
+                if (!empty($r['TITLE'])) { $names[$r['TITLE']] = true; }
             }
         }
+
+        // Inherited class properties, walking the class parent chain.
+        $cid = (int)$classId;
+        $seen = array();
+        while ($cid > 0 && !isset($seen[$cid])) {
+            $seen[$cid] = true;
+            $rows = SQLSelect("SELECT TITLE FROM properties WHERE CLASS_ID=" . $cid
+                . " AND (OBJECT_ID=0 OR OBJECT_ID IS NULL)");
+            foreach (($rows ?: array()) as $r) {
+                if (!empty($r['TITLE'])) { $names[$r['TITLE']] = true; }
+            }
+            $cl = SQLSelectOne("SELECT PARENT_ID FROM classes WHERE ID=" . $cid);
+            $cid = $cl ? (int)$cl['PARENT_ID'] : 0;
+        }
+
+        $out = array_keys($names);
+        sort($out, SORT_STRING | SORT_FLAG_CASE);
         return $out;
     }
 
@@ -812,18 +859,36 @@ EOD;
             'tou_schedule_json'    => array('tou', 'time_of_use', 'schedule'),
         );
 
-        // Build a flat list of "Object.Property" candidates once.
+        // Build a flat list of "Object.Property" candidates once, covering BOTH
+        // instance-level properties and properties inherited from the object's
+        // class (class-level properties have OBJECT_ID=0, so an OBJECT_ID-only
+        // join would miss them).
         $pairs = array(); // lowercased "obj.prop" => "Obj.Prop" (original case)
+
+        // (1) Instance-level properties.
         $rows = SQLSelect(
             "SELECT o.TITLE AS otitle, p.TITLE AS ptitle " .
             "FROM properties p INNER JOIN objects o ON o.ID = p.OBJECT_ID " .
             "WHERE p.TITLE != '' AND o.TITLE != ''"
         );
-        if (is_array($rows)) {
-            foreach ($rows as $r) {
-                $full = $r['otitle'] . '.' . $r['ptitle'];
-                $pairs[strtolower($full)] = $full;
-            }
+        foreach (($rows ?: array()) as $r) {
+            $full = $r['otitle'] . '.' . $r['ptitle'];
+            $pairs[strtolower($full)] = $full;
+        }
+
+        // (2) Class-level (inherited) properties: attach each class property to
+        // every object of that class. Parent-class inheritance is resolved by
+        // objectAllProperties for the per-object picker; for auto-detect a
+        // single level covers the common inverter/BMS case well.
+        $rows = SQLSelect(
+            "SELECT o.TITLE AS otitle, p.TITLE AS ptitle " .
+            "FROM properties p INNER JOIN objects o ON o.CLASS_ID = p.CLASS_ID " .
+            "WHERE p.TITLE != '' AND o.TITLE != '' AND p.CLASS_ID > 0 " .
+            "AND (p.OBJECT_ID = 0 OR p.OBJECT_ID IS NULL)"
+        );
+        foreach (($rows ?: array()) as $r) {
+            $full = $r['otitle'] . '.' . $r['ptitle'];
+            $pairs[strtolower($full)] = $full;
         }
 
         $mirrorFallback = array(
@@ -1113,6 +1178,29 @@ EOD;
         $cem = isset($this->config['CHEAP_END_MIN']) ? (int)$this->config['CHEAP_END_MIN'] : 0;
         $out['CFG_CHEAP_START'] = sprintf('%02d:%02d', $csh, $csm);
         $out['CFG_CHEAP_END'] = sprintf('%02d:%02d', $ceh, $cem);
+
+        // JSON fields injected into hidden input value="..." attributes must be
+        // entity-encoded (incl. quotes) so embedded " does not terminate the
+        // attribute. ENT_QUOTES encodes both ' and ". JS overwrites these on
+        // change; the pre-fill prevents a save from wiping arrays/map when the
+        // user did not touch those widgets.
+        $pvJson = isset($this->config['PV_ARRAYS_JSON']) ? (string)$this->config['PV_ARRAYS_JSON'] : '';
+        $pmJson = isset($this->config['PROPERTY_MAP_JSON']) ? (string)$this->config['PROPERTY_MAP_JSON'] : '';
+        $out['CFG_PV_ARRAYS_JSON_ATTR'] = htmlspecialchars($pvJson, ENT_QUOTES);
+        $out['CFG_PROPERTY_MAP_JSON_ATTR'] = htmlspecialchars($pmJson, ENT_QUOTES);
+
+        // Localized labels for the Planner-mode and Ensemble-method dropdowns.
+        // Injected as [#VAR#] (reliably substituted) instead of <#LANG#> inside
+        // <option>, which the panel's language pass does not resolve.
+        $L = function ($const, $fallback) {
+            return defined($const) ? constant($const) : $fallback;
+        };
+        $out['LBL_MODE_REACH_FULL'] = $L('LANG_SP_MODE_REACH_FULL', 'reach_full');
+        $out['LBL_MODE_MIN_COST']   = $L('LANG_SP_MODE_MIN_COST', 'minimum_cost');
+        $out['LBL_ENS_MEDIAN']      = $L('LANG_SP_ENS_MEDIAN', 'median');
+        $out['LBL_ENS_MEAN']        = $L('LANG_SP_ENS_MEAN', 'mean');
+        $out['LBL_ENS_WEIGHTED']    = $L('LANG_SP_ENS_WEIGHTED', 'weighted');
+        $out['LBL_ENS_BEST']        = $L('LANG_SP_ENS_BEST', 'best');
 
         // Transport: expose a simple flag so the template can hide the Deye
         // network fields when everything goes through MajorDoMo properties.

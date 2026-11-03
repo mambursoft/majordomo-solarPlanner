@@ -365,8 +365,8 @@
           <div class="col-md-3 form-group">
             <label><#LANG_SP_MODE#></label>
             <select class="form-control" name="planner_mode">
-              <option value="reach_full" [#if CFG_MODE=="reach_full"#]selected[#endif#]><#LANG_SP_MODE_REACH_FULL#></option>
-              <option value="minimum_cost" [#if CFG_MODE=="minimum_cost"#]selected[#endif#]><#LANG_SP_MODE_MIN_COST#></option>
+              <option value="reach_full" [#if CFG_MODE=="reach_full"#]selected[#endif#]>[#LBL_MODE_REACH_FULL#]</option>
+              <option value="minimum_cost" [#if CFG_MODE=="minimum_cost"#]selected[#endif#]>[#LBL_MODE_MIN_COST#]</option>
             </select>
             <span class="help-block" style="font-size:11px;"><#LANG_SP_H_MODE#></span>
           </div>
@@ -378,10 +378,10 @@
           <div class="col-md-2 form-group">
             <label><#LANG_SP_ENSEMBLE#></label>
             <select class="form-control" name="ensemble_method">
-              <option value="median" [#if CFG_ENSEMBLE_METHOD=="median"#]selected[#endif#]><#LANG_SP_ENS_MEDIAN#></option>
-              <option value="mean" [#if CFG_ENSEMBLE_METHOD=="mean"#]selected[#endif#]><#LANG_SP_ENS_MEAN#></option>
-              <option value="weighted" [#if CFG_ENSEMBLE_METHOD=="weighted"#]selected[#endif#]><#LANG_SP_ENS_WEIGHTED#></option>
-              <option value="best" [#if CFG_ENSEMBLE_METHOD=="best"#]selected[#endif#]><#LANG_SP_ENS_BEST#></option>
+              <option value="median" [#if CFG_ENSEMBLE_METHOD=="median"#]selected[#endif#]>[#LBL_ENS_MEDIAN#]</option>
+              <option value="mean" [#if CFG_ENSEMBLE_METHOD=="mean"#]selected[#endif#]>[#LBL_ENS_MEAN#]</option>
+              <option value="weighted" [#if CFG_ENSEMBLE_METHOD=="weighted"#]selected[#endif#]>[#LBL_ENS_WEIGHTED#]</option>
+              <option value="best" [#if CFG_ENSEMBLE_METHOD=="best"#]selected[#endif#]>[#LBL_ENS_BEST#]</option>
             </select>
             <span class="help-block" style="font-size:11px;"><#LANG_SP_H_ENSEMBLE#></span>
           </div>
@@ -531,9 +531,11 @@
               <tbody id="spPvRows"></tbody>
             </table>
             <button type="button" class="btn btn-default btn-sm" onclick="spAddPvRow()"><span class="glyphicon glyphicon-plus"></span> <#LANG_SP_PV_ADD#></button>
-            <!-- Value is filled by JS (spPvSync) from SP_PV_DATA; never inject raw
-                 JSON into the HTML value attribute — embedded quotes break it. -->
-            <input type="hidden" name="pv_arrays_json" id="spPvJson" value="">
+            <!-- Pre-filled with the saved arrays (entity-encoded so quotes do not
+                 break the attribute). JS (spPvSync) overwrites it on change; the
+                 pre-fill guarantees saving without touching this tab never wipes
+                 the arrays. -->
+            <input type="hidden" name="pv_arrays_json" id="spPvJson" value="[#CFG_PV_ARRAYS_JSON_ATTR#]">
           </div>
         </div>
 
@@ -563,9 +565,10 @@
               </tr></thead>
               <tbody id="spPmRows"></tbody>
             </table>
-            <!-- Filled by JS (spPmSync) from SP_PM_DATA; never inject raw JSON
-                 into the value attribute — embedded quotes break the markup. -->
-            <input type="hidden" name="property_map_json" id="spPmJson" value="">
+            <!-- Pre-filled with the saved map (entity-encoded). JS (spPmSync)
+                 overwrites it on change; the pre-fill prevents a save from
+                 another tab wiping the map. -->
+            <input type="hidden" name="property_map_json" id="spPmJson" value="[#CFG_PROPERTY_MAP_JSON_ATTR#]">
           </div>
         </div>
         <div class="row">

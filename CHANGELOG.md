@@ -3,6 +3,28 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog; this project uses semantic versioning.
 
+## [1.1.3] - 2026-11-03
+
+### Fixed
+- **PV arrays were wiped on save ("disappear").** In 1.1.2 the PV-array and
+  property-map hidden inputs were emptied and relied solely on JS to repopulate
+  them; if that JS did not run before submit, saving stored an empty `[]`, losing
+  the configured arrays. Fixed two ways: (1) the hidden inputs are pre-filled
+  with the saved JSON, entity-encoded (`ENT_QUOTES`) so embedded quotes cannot
+  break the attribute; (2) the save handler ignores an empty/`[]`/`{}` post for
+  PV arrays and the property map when real data already exists, so saving from
+  another tab never wipes them. A wiped default array is restored.
+- **"Planner mode" and "Ensemble method" dropdowns showed empty option labels.**
+  They used `<#LANG_…#>` inside `<option>`, which the panel's language pass does
+  not resolve there. The localized labels are now injected as `[#LBL_…#]`
+  template variables from the module (reliably substituted), with safe fallbacks
+  to the raw values.
+- **Property picker showed an incomplete property list.** It queried only
+  instance-level properties (`properties.OBJECT_ID`), missing properties
+  inherited from the object's class (and parent classes). The picker and the
+  auto-detect now merge instance + class-chain properties, so all available
+  properties appear.
+
 ## [1.1.2] - 2026-11-03
 
 ### Added
