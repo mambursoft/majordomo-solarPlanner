@@ -81,9 +81,14 @@
         <small class="text-muted">[#LAST_PLAN_AT#]</small>
       </div></div></div>
       <div class="col-md-4"><div class="panel panel-default"><div class="panel-body">
-        <h4><#LANG_SP_PV_TOMORROW#></h4>
+        <h4><#LANG_SP_PV_TOMORROW#> <small class="text-muted">[#LAST_PLAN_PV_DATE#]</small></h4>
         <div style="font-size: 34px; font-weight: bold;">[#LAST_PLAN_PV_KWH#] <small>кВт·год</small></div>
         <small class="text-muted"><#LANG_SP_LOAD_TOMORROW#>: [#LAST_PLAN_LOAD_KWH#] кВт·год</small>
+        [#if LAST_PLAN_PV_IMPLAUSIBLE=="1"#]
+        <div class="text-warning" style="font-size:11px; margin-top:6px;">
+          <span class="glyphicon glyphicon-warning-sign"></span> <#LANG_SP_PV_IMPLAUSIBLE#> ([#LAST_PLAN_PV_PER_KWP#] кВт·год/кВтп)
+        </div>
+        [#endif#]
       </div></div></div>
       <div class="col-md-4"><div class="panel panel-default"><div class="panel-body">
         <h4><#LANG_SP_NIGHT_IMPORT#></h4>

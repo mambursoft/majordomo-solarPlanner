@@ -200,6 +200,22 @@ class PlanRunner
             'allow_export' => !empty($cfg['ALLOW_EXPORT']),
             'ensemble_method' => isset($cfg['ENSEMBLE_METHOD']) ? $cfg['ENSEMBLE_METHOD'] : 'median',
             'tou_slots' => 6,
+            // PV arrays so the planner can report total kWp and flag an
+            // implausible per-kWp forecast.
+            'pv_arrays' => self::pvArrays($cfg),
         );
+    }
+
+    /** Decode the configured PV arrays (PV_ARRAYS_JSON) into an array. */
+    private static function pvArrays(array $cfg)
+    {
+        $raw = isset($cfg['PV_ARRAYS_JSON']) ? $cfg['PV_ARRAYS_JSON'] : '';
+        if (is_string($raw) && $raw !== '') {
+            $d = json_decode($raw, true);
+            if (is_array($d)) {
+                return $d;
+            }
+        }
+        return array();
     }
 }

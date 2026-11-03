@@ -121,12 +121,123 @@ class PlannerService
         $plan['ensemble_method'] = $ens['method'];
         $plan['load_quality'] = $loadRes['quality'];
         $plan['sim_intervals'] = $simIntervals;
-        $plan['pv_tomorrow_kwh'] = $this->sumPv($ens['intervals']);
-        $plan['pv_tomorrow_low_kwh'] = $this->sumBand($ens['band'], 'low_kwh');
-        $plan['pv_tomorrow_high_kwh'] = $this->sumBand($ens['band'], 'high_kwh');
-        $plan['load_tomorrow_kwh'] = $this->sumLoad($simIntervals);
+
+        // Headline "tomorrow" figures must describe a SINGLE local day, not the
+        // whole ~44h planning horizon. Summing the entire horizon double-counts
+        // (tomorrow + the day after) and roughly doubles the number. The full
+        // horizon is still used by the simulation/night-charge planner above;
+        // only the UI-facing totals are restricted to tomorrow's local day.
+        $tw = $this->localDayWindow($horizonStartUtc, 1); // tomorrow [start,end)
+        $plan['pv_tomorrow_kwh'] = $this->sumPvInWindow($ens['intervals'], $tw['start'], $tw['end']);
+        $plan['pv_tomorrow_low_kwh'] = $this->sumBandInWindow($ens['band'], 'low_kwh', $tw['start'], $tw['end']);
+        $plan['pv_tomorrow_high_kwh'] = $this->sumBandInWindow($ens['band'], 'high_kwh', $tw['start'], $tw['end']);
+        $plan['load_tomorrow_kwh'] = $this->sumLoadInWindow($simIntervals, $tw['start'], $tw['end']);
+
+        // Extra, clearly-labelled context so the full horizon is still visible
+        // without pretending it is "tomorrow".
+        $todayW = $this->localDayWindow($horizonStartUtc, 0);
+        $dayAfterW = $this->localDayWindow($horizonStartUtc, 2);
+        $plan['pv_today_remaining_kwh'] = $this->sumPvInWindow($ens['intervals'], $horizonStartUtc, $todayW['end']);
+        $plan['pv_day_after_kwh'] = $this->sumPvInWindow($ens['intervals'], $dayAfterW['start'], $dayAfterW['end']);
+        $plan['pv_horizon_kwh'] = $this->sumPv($ens['intervals']); // whole horizon (for reference)
+        $plan['tomorrow_local_date'] = (new \DateTime('@' . $tw['start']))
+            ->setTimezone(new \DateTimeZone($this->grid->getTimezone()))->format('Y-m-d');
+
+        // Plausibility guardrail (diagnostic only, never silently alters the
+        // plan): flag when tomorrow's modelled PV per installed kWp exceeds a
+        // generous physical ceiling. Real daily yield per kWp tops out around
+        // ~5-6 kWh in peak summer at this latitude and far less in winter, so a
+        // value above ~6.5 kWh/kWp/day almost certainly means the forecast or
+        // PvModel conversion is wrong.
+        $totalKwp = 0.0;
+        foreach ($this->pvArraysFromConfig() as $a) {
+            $totalKwp += isset($a['kwp']) ? (float)$a['kwp'] : 0.0;
+        }
+        $plan['pv_total_kwp'] = round($totalKwp, 3);
+        if ($totalKwp > 0) {
+            $perKwp = $plan['pv_tomorrow_kwh'] / $totalKwp;
+            $plan['pv_tomorrow_kwh_per_kwp'] = round($perKwp, 3);
+            $plan['pv_forecast_implausible'] = ($perKwp > 6.5) ? 1 : 0;
+        } else {
+            $plan['pv_tomorrow_kwh_per_kwp'] = null;
+            $plan['pv_forecast_implausible'] = 0;
+        }
 
         return $plan;
+    }
+
+    /** Read PV arrays from config (supports pv_arrays array or PV_ARRAYS_JSON). */
+    private function pvArraysFromConfig()
+    {
+        if (isset($this->cfg['pv_arrays']) && is_array($this->cfg['pv_arrays'])) {
+            return $this->cfg['pv_arrays'];
+        }
+        $raw = isset($this->cfg['PV_ARRAYS_JSON']) ? $this->cfg['PV_ARRAYS_JSON'] : '';
+        if (is_string($raw) && $raw !== '') {
+            $d = json_decode($raw, true);
+            if (is_array($d)) {
+                return $d;
+            }
+        }
+        return array();
+    }
+
+    /**
+     * Local-day [start,end) in UTC seconds for the day that is $dayOffset local
+     * days after the local day containing $refUtc. offset 0 = today, 1 = tomorrow.
+     */
+    private function localDayWindow($refUtc, $dayOffset)
+    {
+        $tz = new \DateTimeZone($this->grid->getTimezone());
+        $d = (new \DateTime('@' . (int)$refUtc))->setTimezone($tz);
+        $d->setTime(0, 0, 0);
+        if ($dayOffset !== 0) {
+            $d->modify(($dayOffset > 0 ? '+' : '-') . abs((int)$dayOffset) . ' day');
+        }
+        $start = (int)$d->format('U');
+        $end = (int)(clone $d)->modify('+1 day')->format('U');
+        return array('start' => $start, 'end' => $end);
+    }
+
+    private function sumPvInWindow(array $intervals, $winStart, $winEnd)
+    {
+        $t = 0.0;
+        foreach ($intervals as $start => $iv) {
+            $s = (int)$start;
+            $e = isset($iv['end_utc']) ? (int)$iv['end_utc'] : $s;
+            $mid = (int)(($s + $e) / 2);
+            if ($mid >= $winStart && $mid < $winEnd) {
+                $t += isset($iv['pv_kwh']) ? (float)$iv['pv_kwh'] : 0.0;
+            }
+        }
+        return round($t, 3);
+    }
+
+    private function sumBandInWindow(array $band, $key, $winStart, $winEnd)
+    {
+        $t = 0.0;
+        foreach ($band as $start => $b) {
+            $s = (int)$start;
+            // Band entries may lack end_utc; use the start as the placement key.
+            if ($s >= $winStart && $s < $winEnd) {
+                $t += isset($b[$key]) ? (float)$b[$key] : 0.0;
+            }
+        }
+        return round($t, 3);
+    }
+
+    private function sumLoadInWindow(array $intervals, $winStart, $winEnd)
+    {
+        $t = 0.0;
+        foreach ($intervals as $iv) {
+            $s = (int)$iv['start_utc'];
+            $e = (int)$iv['end_utc'];
+            $mid = (int)(($s + $e) / 2);
+            if ($mid >= $winStart && $mid < $winEnd) {
+                $t += (float)$iv['load_kwh'];
+            }
+        }
+        return round($t, 3);
     }
 
     /**

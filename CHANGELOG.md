@@ -3,6 +3,36 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog; this project uses semantic versioning.
 
+## [1.1.1] - 2026-11-03
+
+### Fixed
+- **"PV tomorrow" was ~2× too high because it summed the whole ~44h horizon.**
+  `PlannerService::makePlan` set `pv_tomorrow_kwh = sumPv(all ensemble intervals)`,
+  so the figure added tomorrow **plus** the day after (and any remaining today),
+  e.g. 4.29 + 4.29 = 8.58 kWh reported as "tomorrow". The headline PV figure now
+  sums only the next local day (midnight→midnight in the installation timezone,
+  by interval midpoint). `load_tomorrow_kwh` had the same horizon-wide bug and is
+  likewise restricted to tomorrow. The full horizon is still used by the
+  simulation and night-charge planner — only the UI totals are per-day. Verified
+  on the live host: 8.58 → 3.7–4.3 kWh for a single day. The ensemble (median,
+  not sum) and the overlap PV→grid allocation (energy-conserving, ratio 1.0)
+  were confirmed correct and are not the cause.
+- Exposed per-day context so the horizon is still visible without mislabeling:
+  `pv_today_remaining_kwh`, `pv_day_after_kwh`, `pv_horizon_kwh`, and
+  `tomorrow_local_date` (shown next to the PV figure in the overview).
+
+### Added
+- **PV plausibility guardrail (diagnostic, non-intrusive).** The plan now
+  computes modelled PV per installed kWp for tomorrow and flags
+  `pv_forecast_implausible` when it exceeds a generous physical ceiling
+  (~6.5 kWh/kWp/day), surfacing a warning in the overview instead of silently
+  driving the night-charge plan with an obviously wrong number. Total installed
+  kWp is read from the configured PV arrays (passed through `PlanRunner::svcCfg`).
+  Note: a secondary, smaller single-day optimism remains in the forecast/PvModel
+  (modelled peak ~1.38 kW vs measured ~996 W on an overcast day); calibrating the
+  irradiance→energy conversion is tracked separately and does not affect the
+  per-day summing fix above.
+
 ## [1.1.0] - 2026-11-02
 
 ### Fixed

@@ -10,7 +10,7 @@
  * @author     mambursoft
  * @copyright  2026 mambursoft
  * @license    MIT
- * @version    1.1.0
+ * @version    1.1.1
  */
 
 require_once(dirname(__FILE__) . '/lib/autoload.php');
@@ -160,8 +160,8 @@ class solarplanner extends module
                     'REPOSITORY_URL'  => 'https://github.com/mambursoft/majordomo-solarPlanner',
                     'DESCRIPTION_RU'  => $descRu,
                     'DESCRIPTION_EN'  => $descEn,
-                    'CURRENT_VERSION' => '1.1.0',
-                    'LATEST_VERSION'  => '1.1.0',
+                    'CURRENT_VERSION' => '1.1.1',
+                    'LATEST_VERSION'  => '1.1.1',
                     'IS_INSTALLED'    => 1,
                     'LATEST_UPDATE'   => date('Y-m-d H:i:s'),
                 );
@@ -171,7 +171,7 @@ class solarplanner extends module
                 $pRec['AUTHOR']         = 'mambursoft';
                 $pRec['DESCRIPTION_RU'] = $descRu;
                 $pRec['DESCRIPTION_EN'] = $descEn;
-                $pRec['CURRENT_VERSION']= '1.1.0';
+                $pRec['CURRENT_VERSION']= '1.1.1';
                 $pRec['IS_INSTALLED']   = 1;
                 SQLUpdate('plugins', $pRec);
             }
@@ -1092,6 +1092,14 @@ EOD;
                 $out['LAST_PLAN_LOAD_KWH']    = round((float)$last['LOAD_TOMORROW_KWH'], 2);
                 $out['LAST_PLAN_AT']          = date('Y-m-d H:i', (int)$last['PLAN_UTC']);
                 $payload = json_decode($last['PAYLOAD'], true);
+                // PV forecast context: which local day, and a plausibility flag
+                // when modelled per-kWp yield is physically implausible.
+                $out['LAST_PLAN_PV_DATE'] = isset($payload['tomorrow_local_date']) ? htmlspecialchars($payload['tomorrow_local_date']) : '';
+                $out['LAST_PLAN_PV_HORIZON_KWH'] = isset($payload['pv_horizon_kwh']) ? round((float)$payload['pv_horizon_kwh'], 2) : '';
+                $out['LAST_PLAN_PV_DAYAFTER_KWH'] = isset($payload['pv_day_after_kwh']) ? round((float)$payload['pv_day_after_kwh'], 2) : '';
+                $out['LAST_PLAN_PV_IMPLAUSIBLE'] = !empty($payload['pv_forecast_implausible']) ? 1 : 0;
+                $out['LAST_PLAN_PV_PER_KWP'] = isset($payload['pv_tomorrow_kwh_per_kwp']) && $payload['pv_tomorrow_kwh_per_kwp'] !== null
+                    ? round((float)$payload['pv_tomorrow_kwh_per_kwp'], 2) : '';
                 // Render the explanation as safe HTML: each line as its own
                 // paragraph/list item so it is readable, not one run-on blob.
                 $lines = array();
