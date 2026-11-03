@@ -3,6 +3,43 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog; this project uses semantic versioning.
 
+## [1.1.0] - 2026-11-02
+
+### Fixed
+- **PV forecast never reached the simulator (plan was effectively PV-blind).**
+  `EnsembleBuilder` keys intervals by the providers' own grid (Open-Meteo is
+  hourly) while `PlannerService` looked them up by exact 30-min grid start, so
+  `pv_kwh` was 0 in every simulated interval even though `pv_tomorrow` was
+  non-zero. PV energy is now distributed onto the simulation grid by time
+  overlap, preserving total energy. Verified on the live host: ensemble PV sum
+  now equals the simulated PV sum (was 0).
+- **Plan was "infeasible / 0%" because of a bogus start SOC.** The telemetry SOC
+  read by "Run plan" was 0 (mirror objects not yet fed by a real inverter), i.e.
+  below the reserve, so every candidate breached the reserve and the plan looked
+  infeasible with a misleading 0% target. The SOC hook now rejects an
+  implausible/stale reading (≤0, >100, or older than 6h) and falls back to a
+  safe default (reserve), which is stated in the explanation. Verified: the same
+  plan now returns `feasible`, TargetSocAt07 = 100%.
+- **Plan explanation was raw English, unformatted and unreadable.** The
+  infeasibility reason is now a machine code localized at the display layer
+  (UA/RU/EN) with a plain-language meaning for a homeowner, rendered as separate
+  lines instead of one run-on paragraph. On an infeasible plan the UI now shows
+  the suggested safe compromise SOC (clearly marked as advice) instead of a
+  misleading 0%.
+- **PV-array and property-map editors intermittently broke / "disappeared".**
+  Their saved JSON was injected into an HTML `value="..."` attribute; the
+  embedded double quotes closed the attribute and corrupted the markup. Both
+  hidden fields are now filled by JS from the injected JS data, so quotes in the
+  data can no longer break the form.
+
+### Added
+- **Auto-detect for the property map.** A new "Auto-detect" button scans the
+  installation's objects/properties by name keywords (SOC, PV power, load, grid,
+  battery power, alarms, BMS limits, TOU) and fills confident matches, leaving
+  the rest as "—" (null) for confirmation; the SolarPlanner.* mirror is used as
+  a fallback for core telemetry. Added guidance text explaining what to pick and
+  that "—" means "do not use (null)". New server action `auto_map_properties`.
+
 ## [1.0.9] - 2026-11-02
 
 ### Fixed

@@ -75,11 +75,16 @@ class PlannerService
         $loadRes = $lf->forecast($intervals, $loadHistory);
 
         // 3) Merge PV + load + tariff flags into simulation intervals.
+        // Provider forecasts arrive on their own grid (Open-Meteo is hourly),
+        // which does NOT line up with our 30-min simulation grid. Allocating by
+        // exact start match would drop all PV. Instead distribute each ensemble
+        // interval's energy onto the sim grid in proportion to time overlap.
+        $pvByStart = $this->allocatePvToGrid($ens['intervals'], $loadRes['intervals']);
         $cheap = $this->buildCheapMask($horizonStartUtc, $horizonEndUtc);
         $simIntervals = array();
         foreach ($loadRes['intervals'] as $iv) {
             $start = (int)$iv['start_utc'];
-            $pv = isset($ens['intervals'][$start]) ? $ens['intervals'][$start]['pv_kwh'] : 0.0;
+            $pv = isset($pvByStart[$start]) ? $pvByStart[$start] : 0.0;
             $isCheap = $this->inCheap($start, (int)$iv['end_utc'], $cheap);
             $simIntervals[] = array(
                 'start_utc' => $start,
@@ -165,6 +170,51 @@ class PlannerService
             'compile' => $compiled,
             'accurate' => $compiled['ok'],
         );
+    }
+
+    /**
+     * Distribute ensemble PV energy (on the providers' own grid) onto the
+     * simulation grid by time overlap, so hourly provider data maps correctly
+     * onto 30-min (or 15/60-min) sim intervals without losing energy.
+     *
+     * Energy is treated as uniformly spread within each ensemble interval: a
+     * sim interval that covers half of an ensemble interval receives half its
+     * kWh. Total PV energy is preserved (modulo intervals outside the horizon).
+     *
+     * @param array $ensIntervals keyed by start_utc => ['end_utc','pv_kwh',...]
+     * @param array $gridIntervals list of ['start_utc','end_utc',...]
+     * @return array map start_utc => pv_kwh
+     */
+    private function allocatePvToGrid(array $ensIntervals, array $gridIntervals)
+    {
+        // Normalise ensemble intervals to a simple list with numeric bounds.
+        $src = array();
+        foreach ($ensIntervals as $start => $e) {
+            $s = (int)$start;
+            $en = isset($e['end_utc']) ? (int)$e['end_utc'] : 0;
+            $kwh = isset($e['pv_kwh']) ? (float)$e['pv_kwh'] : 0.0;
+            if ($en > $s) {
+                $src[] = array('s' => $s, 'e' => $en, 'kwh' => $kwh, 'dur' => $en - $s);
+            }
+        }
+
+        $out = array();
+        foreach ($gridIntervals as $iv) {
+            $gs = (int)$iv['start_utc'];
+            $ge = (int)$iv['end_utc'];
+            $acc = 0.0;
+            foreach ($src as $p) {
+                // Overlap of [gs,ge) with [p.s,p.e).
+                $lo = $gs > $p['s'] ? $gs : $p['s'];
+                $hi = $ge < $p['e'] ? $ge : $p['e'];
+                $ov = $hi - $lo;
+                if ($ov > 0 && $p['dur'] > 0) {
+                    $acc += $p['kwh'] * ($ov / $p['dur']);
+                }
+            }
+            $out[$gs] = $acc;
+        }
+        return $out;
     }
 
     private function buildCheapMask($fromUtc, $toUtc)

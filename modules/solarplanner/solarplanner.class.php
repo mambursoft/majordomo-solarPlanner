@@ -10,7 +10,7 @@
  * @author     mambursoft
  * @copyright  2026 mambursoft
  * @license    MIT
- * @version    1.0.9
+ * @version    1.1.0
  */
 
 require_once(dirname(__FILE__) . '/lib/autoload.php');
@@ -160,8 +160,8 @@ class solarplanner extends module
                     'REPOSITORY_URL'  => 'https://github.com/mambursoft/majordomo-solarPlanner',
                     'DESCRIPTION_RU'  => $descRu,
                     'DESCRIPTION_EN'  => $descEn,
-                    'CURRENT_VERSION' => '1.0.9',
-                    'LATEST_VERSION'  => '1.0.9',
+                    'CURRENT_VERSION' => '1.1.0',
+                    'LATEST_VERSION'  => '1.1.0',
                     'IS_INSTALLED'    => 1,
                     'LATEST_UPDATE'   => date('Y-m-d H:i:s'),
                 );
@@ -171,7 +171,7 @@ class solarplanner extends module
                 $pRec['AUTHOR']         = 'mambursoft';
                 $pRec['DESCRIPTION_RU'] = $descRu;
                 $pRec['DESCRIPTION_EN'] = $descEn;
-                $pRec['CURRENT_VERSION']= '1.0.9';
+                $pRec['CURRENT_VERSION']= '1.1.0';
                 $pRec['IS_INSTALLED']   = 1;
                 SQLUpdate('plugins', $pRec);
             }
@@ -392,6 +392,14 @@ EOD;
             $objName = isset($_REQUEST['object']) ? trim($_REQUEST['object']) : trim($object);
             header('Content-Type: application/json; charset=utf-8');
             echo json_encode($this->listObjectProperties($objName));
+            exit;
+        }
+
+        if ($action == 'auto_map_properties') {
+            // AJAX: auto-detect a best-guess object.property for each indicator
+            // by scanning existing objects/properties by name keywords.
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode($this->autoDetectPropertyMap());
             exit;
         }
 
@@ -730,6 +738,89 @@ EOD;
     }
 
     /**
+     * Auto-detect a best-guess property map by scanning all objects' properties
+     * for name keywords typical of an inverter/BMS integration. Only confident,
+     * unambiguous matches are filled; everything else stays null so the user
+     * confirms. If the SolarPlanner mirror object exists, its known properties
+     * are used as a strong fallback for the core telemetry fields.
+     *
+     * @return array ['map'=>[field=>'Object.Property'|null], 'message'=>string]
+     */
+    private function autoDetectPropertyMap()
+    {
+        // Keyword patterns per indicator (lowercased, matched against
+        // "object.property"). Order matters: earlier = stronger preference.
+        $patterns = array(
+            'battery_soc'          => array('soc', 'stateofcharge', 'charge_level', 'batterylevel'),
+            'soc_updated_utc'      => array('soc_updated', 'soc_time', 'soc_ts'),
+            'pv_power_kw'          => array('pv_power', 'pvpower', 'solarpower', 'pv_kw', 'ppv', 'pv1power'),
+            'load_power_kw'        => array('load_power', 'loadpower', 'consumption', 'house_power', 'pload'),
+            'grid_power_kw'        => array('grid_power', 'gridpower', 'meter_power', 'pgrid'),
+            'battery_power_kw'     => array('battery_power', 'batterypower', 'batt_power', 'pbattery', 'pbat'),
+            'grid_connected'       => array('grid_connected', 'ongrid', 'grid_on', 'mains'),
+            'inverter_alarm'       => array('alarm', 'fault', 'error', 'warning'),
+            'bms_charge_limit_a'   => array('charge_limit', 'chargecurrentlimit', 'maxchargecurrent', 'cclimit'),
+            'bms_discharge_limit_a'=> array('discharge_limit', 'dischargecurrentlimit', 'maxdischargecurrent', 'dclimit'),
+            'grid_charge_enabled'  => array('grid_charge', 'gridcharge', 'ac_charge', 'charge_from_grid'),
+            'tou_schedule_json'    => array('tou', 'time_of_use', 'schedule'),
+        );
+
+        // Build a flat list of "Object.Property" candidates once.
+        $pairs = array(); // lowercased "obj.prop" => "Obj.Prop" (original case)
+        $rows = SQLSelect(
+            "SELECT o.TITLE AS otitle, p.TITLE AS ptitle " .
+            "FROM properties p INNER JOIN objects o ON o.ID = p.OBJECT_ID " .
+            "WHERE p.TITLE != '' AND o.TITLE != ''"
+        );
+        if (is_array($rows)) {
+            foreach ($rows as $r) {
+                $full = $r['otitle'] . '.' . $r['ptitle'];
+                $pairs[strtolower($full)] = $full;
+            }
+        }
+
+        $mirrorFallback = array(
+            'battery_soc'      => 'SolarPlanner.CurrentSoc',
+            'pv_power_kw'      => 'SolarPlanner.PvPower',
+            'load_power_kw'    => 'SolarPlanner.LoadPower',
+            'grid_power_kw'    => 'SolarPlanner.GridPower',
+            'battery_power_kw' => 'SolarPlanner.BatteryPower',
+        );
+        $mirrorExists = (bool)SQLSelectOne("SELECT ID FROM objects WHERE TITLE='SolarPlanner'");
+
+        $map = array();
+        $matched = 0;
+        foreach ($patterns as $field => $keywords) {
+            $best = null;
+            foreach ($keywords as $kw) {
+                foreach ($pairs as $lc => $orig) {
+                    // Prefer a match on the property part, and skip our own mirror
+                    // object so auto-detect finds the REAL inverter objects first.
+                    if (strpos($lc, 'solarplanner.') === 0) {
+                        continue;
+                    }
+                    if (strpos($lc, $kw) !== false) {
+                        $best = $orig;
+                        break 2;
+                    }
+                }
+            }
+            if ($best === null && $mirrorExists && isset($mirrorFallback[$field])) {
+                $best = $mirrorFallback[$field];
+            }
+            if ($best !== null) {
+                $matched++;
+            }
+            $map[$field] = $best; // null when nothing confident found
+        }
+
+        $msg = $matched > 0
+            ? 'Автоматично визначено відповідностей: ' . $matched . '. Перевірте та збережіть.'
+            : 'Не знайдено придатних об\'єктів. Створіть дзеркальні об\'єкти або оберіть вручну.';
+        return array('map' => $map, 'message' => $msg, 'matched' => $matched);
+    }
+
+    /**
      * Localized, plain-language dictionary of every control/safety state for a
      * non-specialist homeowner. Text comes from the language files via LANG_*
      * constants, with safe fallbacks if a key is missing.
@@ -818,8 +909,23 @@ EOD;
                 'prop_getter' => $this->propGetter(),
                 'force_fetch' => true, // manual "Run plan" => refresh now
                 'get_soc' => function () {
-                    $row = SQLSelectOne("SELECT BATTERY_SOC_PCT FROM solarplanner_telemetry WHERE BATTERY_SOC_PCT IS NOT NULL ORDER BY SAMPLE_UTC DESC LIMIT 1");
-                    return ($row && $row['BATTERY_SOC_PCT'] !== null) ? (float)$row['BATTERY_SOC_PCT'] : null;
+                    // Only trust a plausible, recent SOC reading. A literal 0 or
+                    // a very old sample usually means the inverter/BMS link is
+                    // not wired yet (mirror objects still empty). In that case
+                    // return null so PlanRunner starts from a safe default
+                    // (reserve) instead of planning from 0% — which would make
+                    // every candidate breach the reserve and look "infeasible".
+                    $row = SQLSelectOne("SELECT BATTERY_SOC_PCT, SAMPLE_UTC FROM solarplanner_telemetry WHERE BATTERY_SOC_PCT IS NOT NULL ORDER BY SAMPLE_UTC DESC LIMIT 1");
+                    if (!$row || $row['BATTERY_SOC_PCT'] === null) {
+                        return null;
+                    }
+                    $soc = (float)$row['BATTERY_SOC_PCT'];
+                    $age = isset($row['SAMPLE_UTC']) ? (time() - (int)$row['SAMPLE_UTC']) : PHP_INT_MAX;
+                    // Reject: non-positive (no link), impossible (>100), or stale (>6h).
+                    if ($soc <= 0.0 || $soc > 100.0 || $age > 6 * 3600) {
+                        return null;
+                    }
+                    return $soc;
                 },
                 'get_history' => function () {
                     $since = time() - 336 * 3600;
@@ -880,6 +986,17 @@ EOD;
             if (isset($plan[$k])) {
                 $set($prop, $plan[$k]);
             }
+        }
+        // On an infeasible plan there is no target_soc_at_07; publishing nothing
+        // leaves the property at a misleading 0%. Instead publish the suggested
+        // safe compromise so the homeowner sees an actionable number, and mark
+        // that it is a suggestion (not an executed target).
+        if ((!isset($plan['target_soc_at_07']) || $plan['target_soc_at_07'] === null)
+            && isset($plan['suggested_safe_compromise_soc']) && $plan['suggested_safe_compromise_soc'] !== null) {
+            $set('SolarPlanner.TargetSocAt07', $plan['suggested_safe_compromise_soc']);
+            $set('SolarPlanner.TargetSocIsSuggestion', 1);
+        } else {
+            $set('SolarPlanner.TargetSocIsSuggestion', 0);
         }
         if (isset($plan['explanation_obj']['text'])) {
             $set('SolarPlanner.PlanExplanation', $plan['explanation_obj']['text']);
@@ -975,8 +1092,30 @@ EOD;
                 $out['LAST_PLAN_LOAD_KWH']    = round((float)$last['LOAD_TOMORROW_KWH'], 2);
                 $out['LAST_PLAN_AT']          = date('Y-m-d H:i', (int)$last['PLAN_UTC']);
                 $payload = json_decode($last['PAYLOAD'], true);
-                if (isset($payload['explanation_obj']['text'])) {
-                    $out['LAST_PLAN_EXPLANATION'] = htmlspecialchars($payload['explanation_obj']['text']);
+                // Render the explanation as safe HTML: each line as its own
+                // paragraph/list item so it is readable, not one run-on blob.
+                $lines = array();
+                if (isset($payload['explanation_obj']['lines']) && is_array($payload['explanation_obj']['lines'])) {
+                    $lines = $payload['explanation_obj']['lines'];
+                } elseif (isset($payload['explanation_obj']['text'])) {
+                    $lines = preg_split('/\r?\n/', (string)$payload['explanation_obj']['text']);
+                }
+                $html = '';
+                foreach ($lines as $ln) {
+                    $ln = trim((string)$ln);
+                    if ($ln === '') { continue; }
+                    $html .= '<div class="sp-expl-line">' . htmlspecialchars($ln) . '</div>';
+                }
+                $out['LAST_PLAN_EXPLANATION'] = $html !== '' ? $html : '—';
+                // Plain text (for the property mirror / tooltips).
+                $out['LAST_PLAN_EXPLANATION_TEXT'] = isset($payload['explanation_obj']['text'])
+                    ? htmlspecialchars($payload['explanation_obj']['text']) : '';
+                // Is the shown target a suggestion (infeasible) or an executed plan?
+                $out['LAST_PLAN_TARGET_IS_SUGGESTION'] =
+                    (!isset($payload['target_soc_at_07']) || $payload['target_soc_at_07'] === null)
+                    && isset($payload['suggested_safe_compromise_soc']) ? 1 : 0;
+                if ($out['LAST_PLAN_TARGET_IS_SUGGESTION'] && isset($payload['suggested_safe_compromise_soc'])) {
+                    $out['LAST_PLAN_TARGET_SOC'] = round((float)$payload['suggested_safe_compromise_soc'], 1);
                 }
             }
         }

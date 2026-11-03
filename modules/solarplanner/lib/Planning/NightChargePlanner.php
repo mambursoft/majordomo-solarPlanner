@@ -231,10 +231,14 @@ class NightChargePlanner
                 $bestGuide = $r;
             }
         }
+        // Machine-readable reason code (localized at the display layer) plus a
+        // neutral English detail for logs. The UI must not show reason_code raw.
+        $reasonCode = 'reserve_not_holdable';
         $reason = 'No candidate keeps the reserve in adverse scenarios without '
             . 'infeasible night charge power/time.';
         return array(
             'status' => 'infeasible',
+            'reason_code' => $reasonCode,
             'reason' => $reason,
             'min_expected_day_import_kwh' => $bestGuide ? round($bestGuide['day_import_kwh'], 3) : null,
             'suggested_safe_compromise_soc' => $bestGuide ? $bestGuide['target_soc'] : null,

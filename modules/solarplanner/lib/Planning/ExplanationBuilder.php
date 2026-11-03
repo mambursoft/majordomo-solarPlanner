@@ -26,16 +26,29 @@ class ExplanationBuilder
         $lines = array();
 
         if (isset($plan['status']) && $plan['status'] === 'infeasible') {
-            $lines[] = 'План недосяжний за поточними обмеженнями.';
-            $lines[] = 'Причина: ' . (isset($plan['reason']) ? $plan['reason'] : 'невідомо') . '.';
-            if (isset($plan['min_expected_day_import_kwh'])) {
-                $lines[] = sprintf('Мінімальний очікуваний денний імпорт: %.2f кВт·год.', $plan['min_expected_day_import_kwh']);
-            }
+            $lines[] = 'Безпечний план на 100% заряду скласти не вдалося за поточних умов.';
+            $lines[] = 'Що це означає: за наявним прогнозом сонця та споживання акумулятор '
+                . 'не вдається тримати не нижче резерву в усіх несприятливих сценаріях '
+                . '(менше сонця / більше навантаження) без надмірного нічного заряду.';
+            $lines[] = 'Причина: ' . self::reasonText(
+                isset($plan['reason_code']) ? $plan['reason_code'] : null,
+                isset($plan['reason']) ? $plan['reason'] : null
+            );
             if (isset($plan['suggested_safe_compromise_soc'])) {
-                $lines[] = sprintf('Запропонований безпечний компроміс TargetSocAt07: %.0f%%.', $plan['suggested_safe_compromise_soc']);
+                $lines[] = sprintf('Рекомендований безпечний рівень ранкового заряду (TargetSocAt07): %.0f%%.',
+                    $plan['suggested_safe_compromise_soc']);
             }
-            $lines[] = 'Резерв не знижено автоматично. Потрібне ручне підтвердження зміни політики резерву.';
-            return array('text' => implode(' ', $lines), 'lines' => $lines);
+            if (isset($plan['min_expected_day_import_kwh']) && $plan['min_expected_day_import_kwh'] !== null) {
+                $lines[] = sprintf('Очікуваний денний добір з мережі при цьому: близько %.1f кВт·год.',
+                    $plan['min_expected_day_import_kwh']);
+            }
+            if (isset($plan['reserve_soc'])) {
+                $lines[] = sprintf('Резерв %.0f%% збережено — модуль не знижує його автоматично.',
+                    $plan['reserve_soc']);
+            }
+            $lines[] = 'Що зробити: збільшити нічний заряд (підняти ціль), або знизити резерв '
+                . 'вручну, або додати потужності заряду. У shadow-режимі запис в інвертор не виконується.';
+            return array('text' => implode("\n", $lines), 'lines' => $lines);
         }
 
         $lines[] = sprintf('Чому саме TargetSocAt07 = %.1f%%:', $plan['target_soc_at_07']);
@@ -63,6 +76,23 @@ class ExplanationBuilder
             $lines[] = '— план змінився після компіляції TOU (виконано повторну симуляцію).';
         }
 
-        return array('text' => implode(' ', $lines), 'lines' => $lines);
+        return array('text' => implode("\n", $lines), 'lines' => $lines);
+    }
+
+    /** Localized, plain-language text for an infeasibility reason code. */
+    private static function reasonText($code, $fallbackEn = null)
+    {
+        $map = array(
+            'reserve_not_holdable' =>
+                'жоден варіант ранкового заряду не втримує резерв у несприятливих '
+                . 'сценаріях без нічного заряду, що перевищує можливості за потужністю/часом.',
+        );
+        if ($code !== null && isset($map[$code])) {
+            return $map[$code];
+        }
+        // Unknown code: prefer a generic UA message over a raw English string.
+        return $fallbackEn !== null && $fallbackEn !== ''
+            ? 'обмеження плану (' . $fallbackEn . ').'
+            : 'невідома.';
     }
 }
