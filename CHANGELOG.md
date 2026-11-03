@@ -3,6 +3,33 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog; this project uses semantic versioning.
 
+## [1.1.2] - 2026-11-03
+
+### Added
+- **Open the right tab automatically.** With no explicit tab, a configured
+  install opens on Overview; a not-yet-configured one opens on Settings (so a
+  fresh install lands where setup happens instead of an empty overview).
+- **Minutes in the cheap-tariff window.** Start/end are now HH:MM time inputs
+  (e.g. 23:05 / 06:55) parsed into hour+minute config (`CHEAP_START_MIN`,
+  `CHEAP_END_MIN`) and plumbed through SolarWindows, FetchScheduler and the
+  planner's cheap mask.
+- **Manual PV forecast correction `PV_SCALE` (×).** A multiplier to fix a
+  systematic over/under-forecast for a specific install (providers model near
+  clear-sky STC conversion and commonly over-forecast a real roof — orientation,
+  shading, soiling, module type such as P-type). 1.0 = unchanged; e.g. 0.5 halves
+  the forecast. Applied to the simulated PV and to all headline PV figures.
+- **Property-map auto-detect, transport-aware fields, and clearer help** (carried
+  from 1.1.0/1.1.1) plus: firmware field now has guidance (optional, informational;
+  Deye lists many unrelated versions), and the Deye IP/port/serial fields are
+  hidden with an explanatory note when Transport = "via MajorDoMo" (they are only
+  needed for a direct Modbus/logger/RS485 connection).
+
+### Changed
+- **Localized the "Planner mode" and "Ensemble method" dropdowns** (UA/RU/EN)
+  instead of showing raw internal values (reach_full / median / ...).
+- **Clarified the battery capacity help:** the field is the TOTAL capacity of all
+  batteries combined (e.g. 3 x RW-F10.6 ~ 30 kWh), not per-unit.
+
 ## [1.1.1] - 2026-11-03
 
 ### Fixed

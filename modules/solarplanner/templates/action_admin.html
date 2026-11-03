@@ -178,6 +178,14 @@
               </select>
               <span class="help-block" style="font-size:11px;"><#LANG_SP_H_DEYE_TRANSPORT#></span>
             </div>
+            [#if TRANSPORT_IS_MDM=="1"#]
+            <div class="col-md-9 form-group">
+              <label>&nbsp;</label>
+              <div class="alert alert-info" style="font-size:12px; padding:8px 12px; margin:0;">
+                <span class="glyphicon glyphicon-info-sign"></span> <#LANG_SP_H_TRANSPORT_MDM#>
+              </div>
+            </div>
+            [#else#]
             <div class="col-md-3 form-group">
               <label><#LANG_SP_DEYE_HOST#></label>
               <input class="form-control" name="deye_host" value="[#CFG_DEYE_HOST#]" placeholder="напр. 172.16.0.x">
@@ -192,9 +200,11 @@
               <input class="form-control" name="deye_serial" value="[#CFG_DEYE_SERIAL#]" placeholder="(приватне)">
               <span class="help-block" style="font-size:11px;"><#LANG_SP_H_PRIVATE#></span>
             </div>
+            [#endif#]
             <div class="col-md-2 form-group">
               <label><#LANG_SP_FIRMWARE#></label>
-              <input class="form-control" name="firmware" value="[#CFG_FIRMWARE#]" placeholder="версія">
+              <input class="form-control" name="firmware" value="[#CFG_FIRMWARE#]" placeholder="напр. 0121-1185-1807">
+              <span class="help-block" style="font-size:11px;"><#LANG_SP_H_FIRMWARE#></span>
             </div>
           </div>
           <button type="submit" class="btn btn-success btn-sm"><span class="glyphicon glyphicon-floppy-disk"></span> <#LANG_SP_SAVE#></button>
@@ -355,8 +365,8 @@
           <div class="col-md-3 form-group">
             <label><#LANG_SP_MODE#></label>
             <select class="form-control" name="planner_mode">
-              <option value="reach_full" [#if CFG_MODE=="reach_full"#]selected[#endif#]>reach_full</option>
-              <option value="minimum_cost" [#if CFG_MODE=="minimum_cost"#]selected[#endif#]>minimum_cost</option>
+              <option value="reach_full" [#if CFG_MODE=="reach_full"#]selected[#endif#]><#LANG_SP_MODE_REACH_FULL#></option>
+              <option value="minimum_cost" [#if CFG_MODE=="minimum_cost"#]selected[#endif#]><#LANG_SP_MODE_MIN_COST#></option>
             </select>
             <span class="help-block" style="font-size:11px;"><#LANG_SP_H_MODE#></span>
           </div>
@@ -368,12 +378,17 @@
           <div class="col-md-2 form-group">
             <label><#LANG_SP_ENSEMBLE#></label>
             <select class="form-control" name="ensemble_method">
-              <option value="median" [#if CFG_ENSEMBLE_METHOD=="median"#]selected[#endif#]>median</option>
-              <option value="mean" [#if CFG_ENSEMBLE_METHOD=="mean"#]selected[#endif#]>mean</option>
-              <option value="weighted" [#if CFG_ENSEMBLE_METHOD=="weighted"#]selected[#endif#]>weighted</option>
-              <option value="best" [#if CFG_ENSEMBLE_METHOD=="best"#]selected[#endif#]>best</option>
+              <option value="median" [#if CFG_ENSEMBLE_METHOD=="median"#]selected[#endif#]><#LANG_SP_ENS_MEDIAN#></option>
+              <option value="mean" [#if CFG_ENSEMBLE_METHOD=="mean"#]selected[#endif#]><#LANG_SP_ENS_MEAN#></option>
+              <option value="weighted" [#if CFG_ENSEMBLE_METHOD=="weighted"#]selected[#endif#]><#LANG_SP_ENS_WEIGHTED#></option>
+              <option value="best" [#if CFG_ENSEMBLE_METHOD=="best"#]selected[#endif#]><#LANG_SP_ENS_BEST#></option>
             </select>
             <span class="help-block" style="font-size:11px;"><#LANG_SP_H_ENSEMBLE#></span>
+          </div>
+          <div class="col-md-3 form-group">
+            <label><#LANG_SP_PV_SCALE#></label>
+            <input class="form-control" name="pv_scale" value="[#CFG_PV_SCALE#]" placeholder="1.0">
+            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_PV_SCALE#></span>
           </div>
         </div>
       </div>
@@ -386,12 +401,12 @@
         <div class="row">
           <div class="col-md-3 form-group">
             <label><#LANG_SP_CHEAP_START#></label>
-            <input class="form-control" name="cheap_start_hour" value="[#CFG_CHEAP_START_HOUR#]">
+            <input class="form-control" type="time" name="cheap_start" value="[#CFG_CHEAP_START#]" placeholder="23:00">
             <span class="help-block" style="font-size:11px;"><#LANG_SP_H_CHEAP_START#></span>
           </div>
           <div class="col-md-3 form-group">
             <label><#LANG_SP_CHEAP_END#></label>
-            <input class="form-control" name="cheap_end_hour" value="[#CFG_CHEAP_END_HOUR#]">
+            <input class="form-control" type="time" name="cheap_end" value="[#CFG_CHEAP_END#]" placeholder="07:00">
             <span class="help-block" style="font-size:11px;"><#LANG_SP_H_CHEAP_END#></span>
           </div>
           <div class="col-md-3 form-group">

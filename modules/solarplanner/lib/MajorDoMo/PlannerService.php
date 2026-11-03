@@ -80,11 +80,14 @@ class PlannerService
         // exact start match would drop all PV. Instead distribute each ensemble
         // interval's energy onto the sim grid in proportion to time overlap.
         $pvByStart = $this->allocatePvToGrid($ens['intervals'], $loadRes['intervals']);
+        // Manual PV correction for systematic provider over/under-forecast.
+        $pvScale = isset($this->cfg['pv_scale']) && is_numeric($this->cfg['pv_scale'])
+            ? max(0.1, min(2.0, (float)$this->cfg['pv_scale'])) : 1.0;
         $cheap = $this->buildCheapMask($horizonStartUtc, $horizonEndUtc);
         $simIntervals = array();
         foreach ($loadRes['intervals'] as $iv) {
             $start = (int)$iv['start_utc'];
-            $pv = isset($pvByStart[$start]) ? $pvByStart[$start] : 0.0;
+            $pv = (isset($pvByStart[$start]) ? $pvByStart[$start] : 0.0) * $pvScale;
             $isCheap = $this->inCheap($start, (int)$iv['end_utc'], $cheap);
             $simIntervals[] = array(
                 'start_utc' => $start,
@@ -128,18 +131,19 @@ class PlannerService
         // horizon is still used by the simulation/night-charge planner above;
         // only the UI-facing totals are restricted to tomorrow's local day.
         $tw = $this->localDayWindow($horizonStartUtc, 1); // tomorrow [start,end)
-        $plan['pv_tomorrow_kwh'] = $this->sumPvInWindow($ens['intervals'], $tw['start'], $tw['end']);
-        $plan['pv_tomorrow_low_kwh'] = $this->sumBandInWindow($ens['band'], 'low_kwh', $tw['start'], $tw['end']);
-        $plan['pv_tomorrow_high_kwh'] = $this->sumBandInWindow($ens['band'], 'high_kwh', $tw['start'], $tw['end']);
+        $plan['pv_tomorrow_kwh'] = round($this->sumPvInWindow($ens['intervals'], $tw['start'], $tw['end']) * $pvScale, 3);
+        $plan['pv_tomorrow_low_kwh'] = round($this->sumBandInWindow($ens['band'], 'low_kwh', $tw['start'], $tw['end']) * $pvScale, 3);
+        $plan['pv_tomorrow_high_kwh'] = round($this->sumBandInWindow($ens['band'], 'high_kwh', $tw['start'], $tw['end']) * $pvScale, 3);
         $plan['load_tomorrow_kwh'] = $this->sumLoadInWindow($simIntervals, $tw['start'], $tw['end']);
 
         // Extra, clearly-labelled context so the full horizon is still visible
         // without pretending it is "tomorrow".
         $todayW = $this->localDayWindow($horizonStartUtc, 0);
         $dayAfterW = $this->localDayWindow($horizonStartUtc, 2);
-        $plan['pv_today_remaining_kwh'] = $this->sumPvInWindow($ens['intervals'], $horizonStartUtc, $todayW['end']);
-        $plan['pv_day_after_kwh'] = $this->sumPvInWindow($ens['intervals'], $dayAfterW['start'], $dayAfterW['end']);
-        $plan['pv_horizon_kwh'] = $this->sumPv($ens['intervals']); // whole horizon (for reference)
+        $plan['pv_today_remaining_kwh'] = round($this->sumPvInWindow($ens['intervals'], $horizonStartUtc, $todayW['end']) * $pvScale, 3);
+        $plan['pv_day_after_kwh'] = round($this->sumPvInWindow($ens['intervals'], $dayAfterW['start'], $dayAfterW['end']) * $pvScale, 3);
+        $plan['pv_horizon_kwh'] = round($this->sumPv($ens['intervals']) * $pvScale, 3); // whole horizon (for reference)
+        $plan['pv_scale'] = $pvScale;
         $plan['tomorrow_local_date'] = (new \DateTime('@' . $tw['start']))
             ->setTimezone(new \DateTimeZone($this->grid->getTimezone()))->format('Y-m-d');
 
@@ -332,10 +336,12 @@ class PlannerService
     {
         $startHour = isset($this->cfg['cheap_start_hour']) ? (int)$this->cfg['cheap_start_hour'] : 23;
         $endHour = isset($this->cfg['cheap_end_hour']) ? (int)$this->cfg['cheap_end_hour'] : 7;
+        $startMin = isset($this->cfg['cheap_start_min']) ? (int)$this->cfg['cheap_start_min'] : 0;
+        $endMin = isset($this->cfg['cheap_end_min']) ? (int)$this->cfg['cheap_end_min'] : 0;
         $windows = array();
         // Build cheap windows for each local day that intersects the horizon.
         for ($off = -1; $off <= 2; $off++) {
-            $w = $this->grid->cheapWindow($fromUtc + $off * 86400, $startHour, $endHour);
+            $w = $this->grid->cheapWindow($fromUtc + $off * 86400, $startHour, $endHour, $startMin, $endMin);
             if ($w['end_utc'] >= $fromUtc && $w['start_utc'] <= $toUtc) {
                 $windows[] = $w;
             }

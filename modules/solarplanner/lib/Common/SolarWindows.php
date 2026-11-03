@@ -62,11 +62,13 @@ class SolarWindows
         // --- cheap-tariff night window (the one that is active now, or next) ---
         $startHour = isset($cfg['cheap_start_hour']) ? (int)$cfg['cheap_start_hour'] : 23;
         $endHour = isset($cfg['cheap_end_hour']) ? (int)$cfg['cheap_end_hour'] : 7;
+        $startMin = isset($cfg['cheap_start_min']) ? (int)$cfg['cheap_start_min'] : 0;
+        $endMin = isset($cfg['cheap_end_min']) ? (int)$cfg['cheap_end_min'] : 0;
         // Build windows for yesterday/today so the one covering "now" (or the
         // upcoming one) is chosen.
         $best = null;
         for ($off = -1; $off <= 1; $off++) {
-            $w = $grid->cheapWindow($nowUtc + $off * 86400, $startHour, $endHour);
+            $w = $grid->cheapWindow($nowUtc + $off * 86400, $startHour, $endHour, $startMin, $endMin);
             if ($nowUtc >= $w['start_utc'] && $nowUtc < $w['end_utc']) {
                 $best = $w; // active now
                 break;
@@ -76,7 +78,7 @@ class SolarWindows
             }
         }
         if ($best === null) {
-            $best = $grid->cheapWindow($nowUtc, $startHour, $endHour);
+            $best = $grid->cheapWindow($nowUtc, $startHour, $endHour, $startMin, $endMin);
         }
 
         $lead = isset($cfg['critical_refine_lead_min']) ? (int)$cfg['critical_refine_lead_min'] : 20;

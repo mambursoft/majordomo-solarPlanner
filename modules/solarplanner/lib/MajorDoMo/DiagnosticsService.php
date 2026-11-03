@@ -136,6 +136,8 @@ class DiagnosticsService
         $sun = (new SolarWindows($site['tz'], $this->propGetter))->resolve($now, array(
             'cheap_start_hour' => isset($cfg['CHEAP_START_HOUR']) ? (int)$cfg['CHEAP_START_HOUR'] : 23,
             'cheap_end_hour' => isset($cfg['CHEAP_END_HOUR']) ? (int)$cfg['CHEAP_END_HOUR'] : 7,
+            'cheap_start_min' => isset($cfg['CHEAP_START_MIN']) ? (int)$cfg['CHEAP_START_MIN'] : 0,
+            'cheap_end_min' => isset($cfg['CHEAP_END_MIN']) ? (int)$cfg['CHEAP_END_MIN'] : 0,
         ), $site['lat']);
         $scheduler = new FetchScheduler($this->schedulerPolicy());
 

@@ -10,7 +10,7 @@
  * @author     mambursoft
  * @copyright  2026 mambursoft
  * @license    MIT
- * @version    1.1.1
+ * @version    1.1.2
  */
 
 require_once(dirname(__FILE__) . '/lib/autoload.php');
@@ -160,8 +160,8 @@ class solarplanner extends module
                     'REPOSITORY_URL'  => 'https://github.com/mambursoft/majordomo-solarPlanner',
                     'DESCRIPTION_RU'  => $descRu,
                     'DESCRIPTION_EN'  => $descEn,
-                    'CURRENT_VERSION' => '1.1.1',
-                    'LATEST_VERSION'  => '1.1.1',
+                    'CURRENT_VERSION' => '1.1.2',
+                    'LATEST_VERSION'  => '1.1.2',
                     'IS_INSTALLED'    => 1,
                     'LATEST_UPDATE'   => date('Y-m-d H:i:s'),
                 );
@@ -171,7 +171,7 @@ class solarplanner extends module
                 $pRec['AUTHOR']         = 'mambursoft';
                 $pRec['DESCRIPTION_RU'] = $descRu;
                 $pRec['DESCRIPTION_EN'] = $descEn;
-                $pRec['CURRENT_VERSION']= '1.1.1';
+                $pRec['CURRENT_VERSION']= '1.1.2';
                 $pRec['IS_INSTALLED']   = 1;
                 SQLUpdate('plugins', $pRec);
             }
@@ -196,7 +196,15 @@ class solarplanner extends module
             'GRID_STEP_MIN'        => 30,
             'MODE'                 => 'reach_full',
             'CHEAP_START_HOUR'     => 23,
+            'CHEAP_START_MIN'      => 0,
             'CHEAP_END_HOUR'       => 7,
+            'CHEAP_END_MIN'        => 0,
+            // Manual correction for systematic PV forecast bias. Providers model
+            // clear-sky-ish STC conversion and often over-forecast a specific
+            // install (orientation, shading, soiling, module type). 1.0 = no
+            // change; 0.5 = halve the forecast. Auto-calibration from measured
+            // history can refine this later.
+            'PV_SCALE'             => 1.0,
             'RESERVE_SOC_PCT'      => 20,
             'BATTERY_COUNT'        => 3,          // 3x Deye RW-F10.6 (confirm!)
             'BATTERY_CAPACITY_KWH' => 30.0,       // ~3 x ~10 kWh usable (confirm!)
@@ -429,7 +437,6 @@ EOD;
     {
         $map = array(
             'TIMEZONE' => 'timezone', 'GRID_STEP_MIN' => 'grid_step_min', 'MODE' => 'planner_mode',
-            'CHEAP_START_HOUR' => 'cheap_start_hour', 'CHEAP_END_HOUR' => 'cheap_end_hour',
             'RESERVE_SOC_PCT' => 'reserve_soc_pct', 'BATTERY_COUNT' => 'battery_count',
             'BATTERY_CAPACITY_KWH' => 'battery_capacity_kwh', 'MAX_SOC_PCT' => 'max_soc_pct',
             'MIN_SOC_PCT' => 'min_soc_pct', 'MAX_CHARGE_KW' => 'max_charge_kw',
@@ -437,6 +444,7 @@ EOD;
             'ETA_DISCHARGE' => 'eta_discharge', 'TARIFF_CHEAP_PRICE' => 'tariff_cheap_price',
             'TARIFF_DAY_PRICE' => 'tariff_day_price', 'SOC_STEP_PCT' => 'soc_step_pct',
             'ENSEMBLE_METHOD' => 'ensemble_method', 'TRANSPORT' => 'transport', 'FIRMWARE' => 'firmware',
+            'PV_SCALE' => 'pv_scale',
             'LATITUDE' => 'latitude', 'LONGITUDE' => 'longitude',
             'PV_ARRAYS_JSON' => 'pv_arrays_json', 'PROPERTY_MAP_JSON' => 'property_map_json',
             'DEYE_HOST' => 'deye_host', 'DEYE_PORT' => 'deye_port',
@@ -447,6 +455,19 @@ EOD;
                 $this->config[$cfgKey] = trim($_POST[$postKey]);
             }
         }
+
+        // Cheap-tariff window as HH:MM time inputs (supports minutes, e.g.
+        // 23:05 / 06:55). Parsed into hour + minute config fields.
+        foreach (array('cheap_start' => array('CHEAP_START_HOUR', 'CHEAP_START_MIN'),
+                       'cheap_end' => array('CHEAP_END_HOUR', 'CHEAP_END_MIN')) as $postKey => $keys) {
+            if (isset($_POST[$postKey]) && preg_match('/^(\d{1,2}):(\d{2})$/', trim($_POST[$postKey]), $m)) {
+                $h = max(0, min(23, (int)$m[1]));
+                $mn = max(0, min(59, (int)$m[2]));
+                $this->config[$keys[0]] = $h;
+                $this->config[$keys[1]] = $mn;
+            }
+        }
+
         // Secret keys: only overwrite when a new non-masked value is supplied,
         // so re-saving the form with the masked placeholder does not wipe them.
         foreach (array('SOLCAST_API_KEY' => 'solcast_api_key', 'FORECAST_SOLAR_API_KEY' => 'forecast_solar_api_key', 'DEYE_SERIAL' => 'deye_serial') as $cfgKey => $postKey) {
@@ -713,6 +734,32 @@ EOD;
             }
         }
         return $out;
+    }
+
+    /**
+     * Has the user done the minimum setup needed for the overview to be useful?
+     * True when coordinates and at least one PV array are set and the property
+     * map links a battery SOC source (or the profile is explicitly verified).
+     * Used to decide whether a fresh install opens on Settings vs Overview.
+     */
+    private function isConfigured()
+    {
+        $c = is_array($this->config) ? $this->config : array();
+        if (!empty($c['PROFILE_VERIFIED'])) {
+            return true;
+        }
+        $hasCoords = isset($c['LATITUDE']) && $c['LATITUDE'] !== '' && isset($c['LONGITUDE']) && $c['LONGITUDE'] !== '';
+        $hasArrays = false;
+        if (!empty($c['PV_ARRAYS_JSON'])) {
+            $a = json_decode($c['PV_ARRAYS_JSON'], true);
+            $hasArrays = is_array($a) && count($a) > 0;
+        }
+        $hasSoc = false;
+        if (!empty($c['PROPERTY_MAP_JSON'])) {
+            $pm = json_decode($c['PROPERTY_MAP_JSON'], true);
+            $hasSoc = is_array($pm) && !empty($pm['battery_soc']);
+        }
+        return $hasCoords && $hasArrays && $hasSoc;
     }
 
     /** AJAX helper: list property names of one object for the mapping picker. */
@@ -1014,7 +1061,10 @@ EOD;
             $vm = $_GET['view_mode'];
         }
         if (!$vm) {
-            $vm = 'overview';
+            // No tab requested: open the Overview by default, but send a
+            // not-yet-configured install straight to Settings so the user is
+            // not greeted by an empty overview and extra clicks.
+            $vm = $this->isConfigured() ? 'overview' : 'settings';
         }
         $out['VIEW_MODE'] = $vm;
 
@@ -1055,6 +1105,18 @@ EOD;
         $out['CFG_SOLCAST_API_KEY'] = !empty($this->config['SOLCAST_API_KEY']) ? '********' : '';
         $out['CFG_FORECAST_SOLAR_API_KEY'] = !empty($this->config['FORECAST_SOLAR_API_KEY']) ? '********' : '';
         $out['CFG_DEYE_SERIAL'] = !empty($this->config['DEYE_SERIAL']) ? '********' : '';
+
+        // Cheap-tariff window as HH:MM for the time inputs (minutes supported).
+        $csh = isset($this->config['CHEAP_START_HOUR']) ? (int)$this->config['CHEAP_START_HOUR'] : 23;
+        $csm = isset($this->config['CHEAP_START_MIN']) ? (int)$this->config['CHEAP_START_MIN'] : 0;
+        $ceh = isset($this->config['CHEAP_END_HOUR']) ? (int)$this->config['CHEAP_END_HOUR'] : 7;
+        $cem = isset($this->config['CHEAP_END_MIN']) ? (int)$this->config['CHEAP_END_MIN'] : 0;
+        $out['CFG_CHEAP_START'] = sprintf('%02d:%02d', $csh, $csm);
+        $out['CFG_CHEAP_END'] = sprintf('%02d:%02d', $ceh, $cem);
+
+        // Transport: expose a simple flag so the template can hide the Deye
+        // network fields when everything goes through MajorDoMo properties.
+        $out['TRANSPORT_IS_MDM'] = (isset($this->config['TRANSPORT']) && $this->config['TRANSPORT'] === 'mdm_property') ? 1 : 0;
 
         // Blocking parameters list for the UI.
         $blkList = array();

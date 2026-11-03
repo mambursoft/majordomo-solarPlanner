@@ -195,6 +195,8 @@ class PlanRunner
             'tariff_day_price' => isset($cfg['TARIFF_DAY_PRICE']) ? (float)$cfg['TARIFF_DAY_PRICE'] : 0,
             'cheap_start_hour' => isset($cfg['CHEAP_START_HOUR']) ? (int)$cfg['CHEAP_START_HOUR'] : 23,
             'cheap_end_hour' => isset($cfg['CHEAP_END_HOUR']) ? (int)$cfg['CHEAP_END_HOUR'] : 7,
+            'cheap_start_min' => isset($cfg['CHEAP_START_MIN']) ? (int)$cfg['CHEAP_START_MIN'] : 0,
+            'cheap_end_min' => isset($cfg['CHEAP_END_MIN']) ? (int)$cfg['CHEAP_END_MIN'] : 0,
             'mode' => isset($cfg['MODE']) ? $cfg['MODE'] : 'reach_full',
             'soc_step_pct' => isset($cfg['SOC_STEP_PCT']) ? (float)$cfg['SOC_STEP_PCT'] : 5,
             'allow_export' => !empty($cfg['ALLOW_EXPORT']),
@@ -203,6 +205,8 @@ class PlanRunner
             // PV arrays so the planner can report total kWp and flag an
             // implausible per-kWp forecast.
             'pv_arrays' => self::pvArrays($cfg),
+            // Manual PV forecast correction factor (1.0 = unchanged).
+            'pv_scale' => isset($cfg['PV_SCALE']) && is_numeric($cfg['PV_SCALE']) ? (float)$cfg['PV_SCALE'] : 1.0,
         );
     }
 
