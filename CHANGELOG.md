@@ -355,3 +355,5 @@ Keep a Changelog; this project uses semantic versioning.
 ### Not yet done on hardware
 - No inverter writes have been performed. The Deye device profile ships
   unverified with empty register addresses, to be filled from a verified source.
+
+- Примечание: проверка совместимости PHP в CI.
