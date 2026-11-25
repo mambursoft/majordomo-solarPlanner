@@ -14,6 +14,8 @@ synthetic templates.
 | `GRID_STEP_MIN` | calculation grid: 15 / 30 / 60 | 30 |
 | `MODE` | `reach_full` or `minimum_cost` | `reach_full` |
 | `CHEAP_START_HOUR` / `CHEAP_END_HOUR` | cheap tariff window (local) | 23 / 7 |
+| `CHEAP_START_MIN` / `CHEAP_END_MIN` | minute precision within the cheap window | 0 / 0 |
+| `CURTAILMENT_PENALTY_PER_KWH` | cost assigned to surplus PV in the optimizer | 0.05 |
 | `TARIFF_CHEAP_PRICE` / `TARIFF_DAY_PRICE` | per-kWh prices | 0 (must set) |
 | `ALLOW_EXPORT` | permit export in the model | 0 |
 | `SOC_STEP_PCT` | candidate SOC granularity | 5 |
@@ -71,9 +73,36 @@ Register addresses come only from a verified device profile (see
 | `OPEN_METEO_ENABLED` | enable Open-Meteo (no key; non-commercial free API) |
 | `FORECAST_SOLAR_ENABLED` / `FORECAST_SOLAR_API_KEY` | Forecast.Solar |
 | `SOLCAST_ENABLED` / `SOLCAST_API_KEY` / `SOLCAST_RESOURCE_IDS` | Solcast home |
-| `SOLCAST_RESERVED_UNITS` | daily calls reserved for the critical pre-07:00 run |
+| `SOLCAST_RESERVED_UNITS` | daily calls reserved for the critical pre-07:00 run (default 2) |
+| `SOLCAST_DAILY_LIMIT_UNITS` | daily quota of Solcast requests; `0` = unknown/unlimited (default 0) |
+| `SOLCAST_SHARED_EXTERNALLY` | flag when Home Assistant or another client uses the same key |
 
-See `providers.md` for quota handling and licensing.
+See `providers.md` for quota handling and licensing. Quota state (backoff and
+circuit breaker) is now persisted in `solarplanner_quota_state` and restored on
+every run. Cached provider runs are discarded when they no longer cover the
+current horizon or were fetched with different coordinates/PV arrays.
+
+## Forecast accuracy and calibration (new in 1.2.0)
+
+| Key | Meaning | Default |
+|---|---|---|
+| `PV_SCALE` | manual multiplier applied to modelled PV | 1.0 |
+| `PV_AUTO_CALIBRATE` | learn a correction from measured vs forecast daily PV | 1 (on) |
+| `PV_CALIBRATION_ALPHA` | smoothing: 0 = never change, 1 = full correction at once | 0.25 |
+| `CONTROLLABLE_HOURLY_KW_JSON` | optional 24-value kW profile of loads scheduled separately (subtracted from the base load forecast) | empty |
+| `OM_DEFAULT_TEMP_C` | fallback ambient temperature when Open-Meteo omits it (flagged in diagnostics) | 10 |
+| `CACHE_HORIZON_SLACK_MIN` | tolerated horizon shortfall when reusing a cached run | 360 |
+
+The module compares the **unscaled** ensemble forecast for yesterday
+(`PV_TOMORROW_RAW_KWH`, published as `SolarPlanner.ForecastPvTomorrowRawKwh`)
+with the PV energy integrated from `solarplanner_telemetry.PV_POWER_KW`, stores
+MAE / bias / RMSE / MAPE in `solarplanner_calibration` (one row per provider and
+local day), and applies a clamped, smoothed scale (0.35–1.60) after at least 3
+verified days. The manual `PV_SCALE` is divided out before learning, so the loop
+converges to the true correction instead of `sqrt(bias)`. Samples recorded with a full battery
+or a clipped inverter are excluded from learning. Accuracy metrics and a
+forecast-vs-actual chart are shown on the Overview tab. Disable auto-calibration
+only if you deliberately manage `PV_SCALE` by hand.
 
 ## Property map (private)
 

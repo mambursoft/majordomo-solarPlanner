@@ -37,6 +37,13 @@ Exit code is non-zero if any assertion fails. The runner includes every file in
 | SOC stale → write blocked; readback mismatch not success | `Unit/SafetyTest` |
 | Field outside allowlist blocked; packed bits preserved | `Unit/SafetyTest` |
 | End-to-end forecast→load→plan→TOU | `Integration/PlannerServiceTest` |
+| "PV tomorrow" is one local day, not the 44 h horizon | `Integration/PvDayWindowTest` |
+| Mixed 1 h / 30 min provider energies conserve energy | `Unit/EnsembleDurationTest` |
+| Ensemble band uses the same slot grid as the central value | `Unit/EnsembleDurationTest` |
+| Weighted/weight-cap rules and degenerate band fallback | `Unit/EnsembleDurationTest` |
+| Calibration needs ≥3 days and divides out the manual scale | `Unit/EnsembleDurationTest` |
+| Quota state survives a load/save round trip | `Unit/EnsembleDurationTest` |
+| Partial forecast is usable but never silently `no_forecast` | `Integration/PartialForecastTest` |
 
 ## Simulator invariants checked per interval
 

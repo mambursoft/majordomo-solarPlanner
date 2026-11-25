@@ -1,1 +1,32 @@
-[#inc action_admin.html#]
+<!-- Solar Planner: compact read-only widget for the usual (dashboard) view.
+     No settings, no armed-mode controls and no state-changing actions here. -->
+<div class="solarplanner-usual" style="font-size:12px;">
+
+  <div class="row" style="margin-bottom:8px;">
+    <div class="col-xs-6">
+      <strong><span class="glyphicon glyphicon-dashboard" aria-hidden="true"></span> <#LANG_SP_TITLE#></strong>
+    </div>
+    <div class="col-xs-6 text-right">
+      <span class="label [#LAST_PLAN_STATUS_CLASS#]" title="[#LAST_PLAN_STATUS#]">[#LAST_PLAN_STATUS_LABEL#]</span>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-xs-4">
+      <small class="text-muted"><#LANG_SP_TARGET_SOC#></small>
+      <div style="font-size:22px; font-weight:bold;">[#LAST_PLAN_TARGET_SOC#]%</div>
+      <small class="text-muted">[#LAST_PLAN_AT#]</small>
+    </div>
+    <div class="col-xs-4">
+      <small class="text-muted"><#LANG_SP_PV_TOMORROW#> ([#LAST_PLAN_PV_DATE#])</small>
+      <div style="font-size:22px; font-weight:bold;">[#LAST_PLAN_PV_KWH#] <small><#LANG_SP_KWH#></small></div>
+      <small class="text-muted"><#LANG_SP_PV_WINDOW#></small>
+    </div>
+    <div class="col-xs-4">
+      <small class="text-muted"><#LANG_SP_PV_HORIZON#></small>
+      <div style="font-size:22px; font-weight:bold;">[#LAST_PLAN_PV_HORIZON_KWH#] <small><#LANG_SP_KWH#></small></div>
+      <small class="text-muted"><#LANG_SP_LIVE#>: [#SP_PV#] <#LANG_SP_KW#> &middot; SOC [#SP_SOC#]%</small>
+    </div>
+  </div>
+
+</div>

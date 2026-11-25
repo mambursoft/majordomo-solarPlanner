@@ -48,7 +48,8 @@ class ForecastSolarAdapter implements ForecastAdapter
 
     public function fetch($fromUtc, $toUtc, $critical = false)
     {
-        $can = $this->quota->canRequest($this->accountId, 1.0, $critical);
+        $expected = count($this->site['arrays']);
+        $can = $this->quota->canRequest($this->accountId, $expected, $critical);
         if (!$can['allowed']) {
             return array('run' => null, 'status' => 'missing', 'detail' => 'quota: ' . $can['reason']);
         }
@@ -58,13 +59,13 @@ class ForecastSolarAdapter implements ForecastAdapter
         $run->energyBasis = 'interval';
         $run->validFromUtc = (int)$fromUtc;
         $run->validToUtc = (int)$toUtc;
-        $run->quotaState = $this->quota->snapshot($this->accountId);
         $run->locationConfigHash = isset($this->site['location_hash']) ? $this->site['location_hash'] : '';
         $run->pvConfigHash = isset($this->site['pv_hash']) ? $this->site['pv_hash'] : '';
 
         $byInterval = array(); // startUtc => ['end'=>, 'kwh'=>]
         $rawConcat = '';
         $okAny = false;
+        $okArrays = 0;
 
         foreach ($this->site['arrays'] as $a) {
             $url = $this->buildUrl($a);
@@ -79,6 +80,7 @@ class ForecastSolarAdapter implements ForecastAdapter
             }
             $this->quota->recordSuccess($this->accountId, 1.0);
             $okAny = true;
+            $okArrays++;
             $rawConcat .= $res['body'];
             $data = json_decode($res['body'], true);
             if (!isset($data['result']['watt_hours_period'])) {
@@ -104,15 +106,26 @@ class ForecastSolarAdapter implements ForecastAdapter
             return array('run' => null, 'status' => 'unusable', 'detail' => 'all array requests failed');
         }
 
+        // A failed array request would otherwise be read as zero generation.
+        $coverageFactor = ($okArrays > 0 && $okArrays < $expected)
+            ? min(2.0, $expected / $okArrays) : 1.0;
+        if ($coverageFactor > 1.0) {
+            $run->qualityFlags[] = 'partial_arrays:' . ($expected - $okArrays) . '/' . $expected;
+        }
         ksort($byInterval);
         foreach ($byInterval as $start => $row) {
-            $run->addInterval($start, $row['end'], $row['kwh'], array(
-                'pv_mean_power_kw' => $row['kwh'],
+            $hours = ($row['end'] - $start) / 3600.0;
+            $kwh = $row['kwh'] * $coverageFactor;
+            $run->addInterval($start, $row['end'], $kwh, array(
+                // kWh / hours = kW. Previously the kWh value was stored in a
+                // kW-named field; it only happened to match for 1-hour slots.
+                'pv_mean_power_kw' => $hours > 0 ? $kwh / $hours : 0.0,
                 'array_id' => 'aggregate',
             ));
         }
         $run->rawResponseHash = hash('sha256', $rawConcat);
-        $status = $run->coversHorizon($fromUtc, $toUtc) ? 'fresh' : 'partial';
+        $run->quotaState = $this->quota->snapshot($this->accountId);
+        $status = ($okArrays >= $expected && $run->coversHorizon($fromUtc, $toUtc)) ? 'fresh' : 'partial';
         return array('run' => $run, 'status' => $status, 'detail' => 'ok');
     }
 

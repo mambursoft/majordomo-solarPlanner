@@ -195,6 +195,22 @@ function sp_collect_telemetry()
     }, $map);
     $raw = $adapter->readTelemetry();
     $v = TelemetryCollector::validate($raw, time(), 300);
+    // Flag samples whose measured PV is NOT the potentially available
+    // generation, so the calibration loop can exclude them (battery full /
+    // clipping). A full battery with sun still means curtailment, not less sun.
+    $soc = $v['sample']['battery_soc_pct'];
+    $pv = $v['sample']['pv_power_kw'];
+    if ($soc !== null && $pv !== null && $pv > 0.1 && $soc >= 99.0) {
+        $v['flags'][] = 'pv_battery_full';
+    }
+    $acCap = isset($cfg['INVERTER_AC_KW']) && is_numeric($cfg['INVERTER_AC_KW'])
+        ? (float)$cfg['INVERTER_AC_KW'] : 0.0;
+    // Real AC clipping pins PV at (or just under) the inverter rating; a
+    // >2% overshoot almost never occurs. Flag at 98% of the cap so clipped
+    // samples are excluded from calibration instead of teaching a low bias.
+    if ($acCap > 0 && $pv !== null && $pv >= $acCap * 0.98) {
+        $v['flags'][] = 'pv_clipped';
+    }
     if ($v['sample']['battery_soc_pct'] !== null) {
         $rec = array(
             'SAMPLE_UTC' => $v['sample']['utc'],

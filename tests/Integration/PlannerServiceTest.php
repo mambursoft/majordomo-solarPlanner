@@ -59,7 +59,9 @@ $plan = $svc->makePlan(40, array(
 ), $history, $from, $to, array('unavailable_providers' => array()));
 
 T::ok(isset($plan['status']), 'plan produced a status');
+T::eq($plan['status'], 'feasible', 'synthetic summer plan is feasible (not accepted for any status)');
 T::ok($plan['pv_tomorrow_kwh'] > 0, 'PV tomorrow computed from ensemble');
+T::ok(isset($plan['pv_tomorrow_raw_kwh']), 'unscaled PV value stored for calibration');
 T::ok($plan['load_tomorrow_kwh'] > 0, 'load tomorrow computed from history');
 T::ok(isset($plan['explanation_obj']['text']) && strlen($plan['explanation_obj']['text']) > 0, 'explanation produced');
 

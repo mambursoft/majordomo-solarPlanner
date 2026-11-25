@@ -41,7 +41,9 @@ solarplanner_planning_runs: TARGET_SOC_AT_07 float
 solarplanner_planning_runs: NIGHT_IMPORT_KWH float
 solarplanner_planning_runs: DAY_IMPORT_KWH float
 solarplanner_planning_runs: PV_TOMORROW_KWH float
+solarplanner_planning_runs: PV_TOMORROW_RAW_KWH float
 solarplanner_planning_runs: LOAD_TOMORROW_KWH float
+solarplanner_planning_runs: TOMORROW_LOCAL_DATE varchar(10) NOT NULL DEFAULT ''
 solarplanner_planning_runs: ALGORITHM_VERSION varchar(16) NOT NULL DEFAULT ''
 solarplanner_planning_runs: PAYLOAD mediumtext
 solarplanner_planning_runs: CREATED datetime
@@ -75,8 +77,18 @@ solarplanner_calibration: HORIZON varchar(24) NOT NULL DEFAULT ''
 solarplanner_calibration: MAE float
 solarplanner_calibration: BIAS float
 solarplanner_calibration: RMSE float
+solarplanner_calibration: MAPE float
+solarplanner_calibration: SCALE float
+solarplanner_calibration: FORECAST_KWH float
+solarplanner_calibration: ACTUAL_KWH float
+solarplanner_calibration: DATE_LOCAL varchar(10) NOT NULL DEFAULT ''
 solarplanner_calibration: N_SAMPLES int(10) NOT NULL DEFAULT '0'
 solarplanner_calibration: UPDATED datetime
+
+solarplanner_quota_state: ID int(10) unsigned NOT NULL auto_increment
+solarplanner_quota_state: STATE_KEY varchar(32) NOT NULL DEFAULT 'default'
+solarplanner_quota_state: PAYLOAD mediumtext
+solarplanner_quota_state: UPDATED datetime
 EOD;
 
 parent::dbInstall($data);

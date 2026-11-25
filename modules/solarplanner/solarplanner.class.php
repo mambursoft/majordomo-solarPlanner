@@ -10,7 +10,7 @@
  * @author     mambursoft
  * @copyright  2026 mambursoft
  * @license    MIT
- * @version    1.1.3
+ * @version    1.2.1
  */
 
 require_once(dirname(__FILE__) . '/lib/autoload.php');
@@ -72,7 +72,12 @@ class solarplanner extends module
             $out['PARENT_NAME'] = $this->owner->name;
         }
 
-        $out['VIEW_MODE']   = $this->view_mode;
+        // populateView() already selected a sensible default tab (overview for
+        // configured installs, settings otherwise). Only override it when a
+        // real view_mode was provided by the request.
+        if (!empty($this->view_mode) || !isset($out['VIEW_MODE'])) {
+            $out['VIEW_MODE'] = $this->view_mode;
+        }
         $out['EDIT_MODE']   = $this->edit_mode;
         $out['MODE']        = $this->mode;
         $out['ACTION']      = $this->action;
@@ -160,8 +165,8 @@ class solarplanner extends module
                     'REPOSITORY_URL'  => 'https://github.com/mambursoft/majordomo-solarPlanner',
                     'DESCRIPTION_RU'  => $descRu,
                     'DESCRIPTION_EN'  => $descEn,
-                    'CURRENT_VERSION' => '1.1.3',
-                    'LATEST_VERSION'  => '1.1.3',
+                    'CURRENT_VERSION' => '1.2.1',
+                    'LATEST_VERSION'  => '1.2.1',
                     'IS_INSTALLED'    => 1,
                     'LATEST_UPDATE'   => date('Y-m-d H:i:s'),
                 );
@@ -171,7 +176,7 @@ class solarplanner extends module
                 $pRec['AUTHOR']         = 'mambursoft';
                 $pRec['DESCRIPTION_RU'] = $descRu;
                 $pRec['DESCRIPTION_EN'] = $descEn;
-                $pRec['CURRENT_VERSION']= '1.1.3';
+                $pRec['CURRENT_VERSION']= '1.2.1';
                 $pRec['IS_INSTALLED']   = 1;
                 SQLUpdate('plugins', $pRec);
             }
@@ -297,7 +302,9 @@ solarplanner_planning_runs: TARGET_SOC_AT_07 float
 solarplanner_planning_runs: NIGHT_IMPORT_KWH float
 solarplanner_planning_runs: DAY_IMPORT_KWH float
 solarplanner_planning_runs: PV_TOMORROW_KWH float
+solarplanner_planning_runs: PV_TOMORROW_RAW_KWH float
 solarplanner_planning_runs: LOAD_TOMORROW_KWH float
+solarplanner_planning_runs: TOMORROW_LOCAL_DATE varchar(10) NOT NULL DEFAULT ''
 solarplanner_planning_runs: ALGORITHM_VERSION varchar(16) NOT NULL DEFAULT ''
 solarplanner_planning_runs: PAYLOAD mediumtext
 solarplanner_planning_runs: CREATED datetime
@@ -331,8 +338,18 @@ solarplanner_calibration: HORIZON varchar(24) NOT NULL DEFAULT ''
 solarplanner_calibration: MAE float
 solarplanner_calibration: BIAS float
 solarplanner_calibration: RMSE float
+solarplanner_calibration: MAPE float
+solarplanner_calibration: SCALE float
+solarplanner_calibration: FORECAST_KWH float
+solarplanner_calibration: ACTUAL_KWH float
+solarplanner_calibration: DATE_LOCAL varchar(10) NOT NULL DEFAULT ''
 solarplanner_calibration: N_SAMPLES int(10) NOT NULL DEFAULT '0'
 solarplanner_calibration: UPDATED datetime
+
+solarplanner_quota_state: ID int(10) unsigned NOT NULL auto_increment
+solarplanner_quota_state: STATE_KEY varchar(32) NOT NULL DEFAULT 'default'
+solarplanner_quota_state: PAYLOAD mediumtext
+solarplanner_quota_state: UPDATED datetime
 EOD;
         parent::dbInstall($data);
     }
@@ -345,10 +362,75 @@ EOD;
         parent::uninstall();
     }
 
+    /**
+     * CSRF token for state-changing admin actions. Falls back to a signed
+     * cookie when PHP sessions are unavailable (embedded widgets, AJAX), so a
+     * token rendered on one request still validates on the next.
+     */
+    private function csrfToken()
+    {
+        $seed = null;
+        if (session_status() !== PHP_SESSION_DISABLED) {
+            if (session_status() === PHP_SESSION_NONE) {
+                @session_start();
+            }
+            if (session_status() === PHP_SESSION_ACTIVE && isset($_SESSION['solarplanner_csrf'])) {
+                $seed = $_SESSION['solarplanner_csrf'];
+            }
+        }
+        if ($seed === null && isset($_COOKIE['solarplanner_csrf'])
+            && preg_match('/^[a-f0-9]{32}$/', $_COOKIE['solarplanner_csrf'])) {
+            $seed = $_COOKIE['solarplanner_csrf'];
+        }
+        if ($seed === null) {
+            $seed = bin2hex(random_bytes(16));
+            if (session_status() === PHP_SESSION_ACTIVE) {
+                $_SESSION['solarplanner_csrf'] = $seed;
+            }
+            if (!headers_sent()) {
+                @setcookie('solarplanner_csrf', $seed, 0, '/', '', false, true);
+            }
+        }
+        $sid = session_status() === PHP_SESSION_ACTIVE ? session_id() : '';
+        return md5($seed . $this->name . $sid);
+    }
+
+    private function csrfValid()
+    {
+        // POST only: $_REQUEST may include cookies depending on variables_order.
+        $token = isset($_POST['sp_csrf']) ? $_POST['sp_csrf']
+            : (isset($_GET['sp_csrf']) ? $_GET['sp_csrf'] : null);
+        return is_string($token) && hash_equals($this->csrfToken(), $token);
+    }
+
+    /**
+     * Base URL for links/forms inside the module admin panel.
+     *
+     * MajorDoMo routes module pages by the panel marker in the query string:
+     *   ?(panel:{action=solarplanner})&md=solarplanner&view_mode=...
+     * Rebuilding this from REQUEST_URI loses the marker (and sometimes `md`),
+     * which sends the user back to the main dashboard. Use the canonical form
+     * that the core templates themselves use.
+     */
+    private function baseUrl()
+    {
+        $module = $this->name ? $this->name : 'solarplanner';
+        return '?(panel:{action=' . $module . '})&md=' . $module . '&';
+    }
+
     function admin(&$out)
     {
         $this->getConfig();
         global $action, $mode;
+
+        $stateChanging = in_array($action, array('save_settings', 'set_mode',
+            'create_objects', 'fetch_solcast', 'run_plan', 'run_diagnostics'), true)
+            || $mode == 'save_settings';
+        if ($stateChanging && !$this->csrfValid()) {
+            $out['ERROR'] = 'Недійсний CSRF-токен. Оновіть сторінку та спробуйте ще раз.';
+            $action = '';
+            $mode = '';
+        }
 
         if ($action == 'save_settings' || $mode == 'save_settings') {
             $this->saveSettings($out);
@@ -435,6 +517,7 @@ EOD;
 
     private function saveSettings(&$out)
     {
+        $previous = $this->config;
         $map = array(
             'TIMEZONE' => 'timezone', 'GRID_STEP_MIN' => 'grid_step_min', 'MODE' => 'planner_mode',
             'RESERVE_SOC_PCT' => 'reserve_soc_pct', 'BATTERY_COUNT' => 'battery_count',
@@ -453,6 +536,42 @@ EOD;
             if (isset($_POST[$postKey])) {
                 $this->config[$cfgKey] = trim($_POST[$postKey]);
             }
+        }
+
+        // Server-side numeric validation (the browser's min/max is not trusted).
+        $ranges = array(
+            'RESERVE_SOC_PCT' => array(0, 100), 'MAX_SOC_PCT' => array(1, 100),
+            'MIN_SOC_PCT' => array(0, 100), 'SOC_STEP_PCT' => array(1, 100),
+            'BATTERY_COUNT' => array(0, 100), 'BATTERY_CAPACITY_KWH' => array(0, 1000),
+            'MAX_CHARGE_KW' => array(0, 500), 'MAX_DISCHARGE_KW' => array(0, 500),
+            'ETA_CHARGE' => array(0.5, 1), 'ETA_DISCHARGE' => array(0.5, 1),
+            'TARIFF_CHEAP_PRICE' => array(0, 100000), 'TARIFF_DAY_PRICE' => array(0, 100000),
+            'PV_SCALE' => array(0.1, 2.0), 'GRID_STEP_MIN' => array(15, 60),
+        );
+        $bad = array();
+        foreach ($ranges as $cfgKey => $bounds) {
+            if (!isset($this->config[$cfgKey]) || $this->config[$cfgKey] === '') {
+                continue;
+            }
+            $v = $this->config[$cfgKey];
+            if (!is_numeric($v)) {
+                $bad[] = $cfgKey;
+                $this->config[$cfgKey] = isset($previous[$cfgKey]) ? $previous[$cfgKey] : $bounds[0];
+                continue;
+            }
+            $this->config[$cfgKey] = max($bounds[0], min($bounds[1], (float)$v));
+        }
+        // Explicit logical bounds: reserve cannot exceed the SOC ceiling.
+        if ((float)$this->config['MIN_SOC_PCT'] > (float)$this->config['MAX_SOC_PCT']) {
+            $bad[] = 'MIN_SOC_PCT';
+            $this->config['MIN_SOC_PCT'] = isset($previous['MIN_SOC_PCT']) ? $previous['MIN_SOC_PCT'] : 10;
+        }
+        if ((float)$this->config['RESERVE_SOC_PCT'] > (float)$this->config['MAX_SOC_PCT']) {
+            $bad[] = 'RESERVE_SOC_PCT';
+            $this->config['RESERVE_SOC_PCT'] = isset($previous['RESERVE_SOC_PCT']) ? $previous['RESERVE_SOC_PCT'] : 20;
+        }
+        if (!empty($bad)) {
+            $out['ERROR'] = 'Некоректні числові значення: ' . implode(', ', $bad) . '. Відновлено попередні.';
         }
 
         // PV arrays / property map: these come from JS-built hidden fields. Guard
@@ -510,11 +629,43 @@ EOD;
         foreach (array('ALLOW_EXPORT' => 'allow_export', 'OPEN_METEO_ENABLED' => 'open_meteo_enabled',
                      'FORECAST_SOLAR_ENABLED' => 'forecast_solar_enabled', 'SOLCAST_ENABLED' => 'solcast_enabled',
                      'PROFILE_VERIFIED' => 'profile_verified') as $cfgKey => $postKey) {
-            $this->config[$cfgKey] = isset($_POST[$postKey]) ? 1 : 0;
+            // Only change flags that the submitted form actually owns. Saving
+            // the Deye/Safety tab must not disable providers or clear
+            // PROFILE_VERIFIED. The settings form posts hidden 0 sentinels.
+            if (array_key_exists($postKey, $_POST)) {
+                $this->config[$cfgKey] = !empty($_POST[$postKey]) ? 1 : 0;
+            }
+        }
+        // Auto-calibration defaults to ON. It is only turned off when the
+        // settings form explicitly posts the field unchecked.
+        if (array_key_exists('pv_auto_calibrate', $_POST)) {
+            $this->config['PV_AUTO_CALIBRATE'] = !empty($_POST['pv_auto_calibrate']) ? 1 : 0;
+        } elseif (!isset($this->config['PV_AUTO_CALIBRATE'])) {
+            $this->config['PV_AUTO_CALIBRATE'] = 1;
+        }
+        if (array_key_exists('solcast_shared_externally', $_POST)) {
+            $this->config['SOLCAST_SHARED_EXTERNALLY'] = !empty($_POST['solcast_shared_externally']) ? 1 : 0;
+        }
+        foreach (array('PV_CALIBRATION_ALPHA' => 'pv_calibration_alpha',
+                       'SOLCAST_DAILY_LIMIT_UNITS' => 'solcast_daily_limit_units',
+                       'SOLCAST_RESERVED_UNITS' => 'solcast_reserved_units',
+                       'CACHE_HORIZON_SLACK_MIN' => 'cache_horizon_slack_min',
+                       'CURTAILMENT_PENALTY_PER_KWH' => 'curtailment_penalty_per_kwh') as $cfgKey => $postKey) {
+            if (isset($_POST[$postKey]) && is_numeric($_POST[$postKey])) {
+                $this->config[$cfgKey] = max(0, (float)$_POST[$postKey]);
+            }
+        }
+        if (isset($_POST['controllable_hourly_kw_json'])) {
+            $decoded = json_decode(trim($_POST['controllable_hourly_kw_json']), true);
+            if (is_array($decoded) && count($decoded) === 24) {
+                $this->config['CONTROLLABLE_HOURLY_KW_JSON'] = json_encode(array_values($decoded));
+            }
         }
         $this->saveConfig();
         setGlobal('cycle_solarplannerControl', 'restart');
-        $out['SUCCESS'] = 'Налаштування збережено. Сигнал перезапуску циклу відправлено.';
+        if (empty($out['ERROR'])) {
+            $out['SUCCESS'] = 'Налаштування збережено. Сигнал перезапуску циклу відправлено.';
+        }
         $this->view_mode = 'settings';
     }
 
@@ -585,7 +736,10 @@ EOD;
             'Enabled' => '1', 'ControlMode' => 'shadow', 'Status' => 'observe',
             'TargetSocAt07' => '', 'PlannedGridChargeKwh' => '', 'PlannedNightImportKwh' => '',
             'ExpectedDayImportKwh' => '', 'ForecastPvTomorrowKwh' => '', 'ForecastLoadTomorrowKwh' => '',
-            'PlanExplanation' => '',
+            'ForecastPvTomorrowLowKwh' => '', 'ForecastPvTomorrowHighKwh' => '',
+            'ForecastPvTomorrowRawKwh' => '', 'ForecastQuality' => '', 'CalibrationScale' => '',
+            'ExpectedCurtailmentKwh' => '', 'ExpectedFullAt' => '',
+            'ExpectedSocAtHorizonEnd' => '', 'PlanExplanation' => '',
         );
         $created = 0;
         foreach ($props as $pName => $pDef) {
@@ -1093,7 +1247,17 @@ EOD;
             'pv_tomorrow_low_kwh' => 'SolarPlanner.ForecastPvTomorrowLowKwh',
             'pv_tomorrow_high_kwh' => 'SolarPlanner.ForecastPvTomorrowHighKwh',
             'load_tomorrow_kwh' => 'SolarPlanner.ForecastLoadTomorrowKwh',
+            'pv_tomorrow_raw_kwh' => 'SolarPlanner.ForecastPvTomorrowRawKwh',
+            'forecast_quality' => 'SolarPlanner.ForecastQuality',
+            'expected_curtailment_kwh' => 'SolarPlanner.ExpectedCurtailmentKwh',
+            'expected_soc_at_horizon_end' => 'SolarPlanner.ExpectedSocAtHorizonEnd',
         );
+        if (isset($plan['expected_full_at_utc']) && $plan['expected_full_at_utc'] !== null) {
+            $set('SolarPlanner.ExpectedFullAt', date('Y-m-d H:i', (int)$plan['expected_full_at_utc']));
+        }
+        if (isset($plan['calibration']['scale'])) {
+            $set('SolarPlanner.CalibrationScale', $plan['calibration']['scale']);
+        }
         foreach ($map as $k => $prop) {
             if (isset($plan[$k])) {
                 $set($prop, $plan[$k]);
@@ -1161,6 +1325,17 @@ EOD;
         }
         $out['STATES'] = $stateRows;
 
+        // Defaults for settings introduced in 1.2.1 so their fields always
+        // render with a meaningful value on upgraded installs.
+        foreach (array(
+            'PV_AUTO_CALIBRATE' => 1, 'PV_CALIBRATION_ALPHA' => 0.25,
+            'SOLCAST_DAILY_LIMIT_UNITS' => 0, 'SOLCAST_RESERVED_UNITS' => 2,
+            'CACHE_HORIZON_SLACK_MIN' => 360, 'CURTAILMENT_PENALTY_PER_KWH' => 0.05,
+        ) as $defKey => $defVal) {
+            if (!isset($this->config[$defKey])) {
+                $this->config[$defKey] = $defVal;
+            }
+        }
         // Settings for the form. API keys are shown masked (never echo the real
         // key); coordinates ARE shown to the owner in their own protected
         // settings form (they are only kept out of Git/logs/snapshots).
@@ -1202,6 +1377,11 @@ EOD;
         $out['LBL_ENS_WEIGHTED']    = $L('LANG_SP_ENS_WEIGHTED', 'weighted');
         $out['LBL_ENS_BEST']        = $L('LANG_SP_ENS_BEST', 'best');
 
+        // Routing-safe base URL and CSRF token for every state-changing form.
+        $out['SP_BASE_URL'] = $this->baseUrl();
+        $out['SP_CSRF'] = $this->csrfToken();
+        $jsonFlags = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
+
         // Transport: expose a simple flag so the template can hide the Deye
         // network fields when everything goes through MajorDoMo properties.
         $out['TRANSPORT_IS_MDM'] = (isset($this->config['TRANSPORT']) && $this->config['TRANSPORT'] === 'mdm_property') ? 1 : 0;
@@ -1215,16 +1395,16 @@ EOD;
         $out['HAS_BLOCKING'] = empty($blkList) ? 0 : 1;
 
         // Objects list for the property-map picker (as a JS array).
-        $out['OBJECTS_JSON'] = json_encode($this->listObjects());
+        $out['OBJECTS_JSON'] = json_encode($this->listObjects(), $jsonFlags);
 
         // Current PV arrays (decoded) for the friendly builder, as JS data.
         $pvArrays = $this->loadPvArrays();
-        $out['PV_ARRAYS_DATA_JSON'] = json_encode(array_values($pvArrays));
+        $out['PV_ARRAYS_DATA_JSON'] = json_encode(array_values($pvArrays), $jsonFlags);
 
         // Current property map (decoded) for the picker, as JS data.
         $pmRaw = isset($this->config['PROPERTY_MAP_JSON']) ? $this->config['PROPERTY_MAP_JSON'] : '';
         $pm = $pmRaw ? json_decode($pmRaw, true) : array();
-        $out['PROPERTY_MAP_DATA_JSON'] = json_encode(is_array($pm) ? $pm : array());
+        $out['PROPERTY_MAP_DATA_JSON'] = json_encode(is_array($pm) ? $pm : array(), $jsonFlags);
 
         // Whether the SolarPlanner mirror object exists already.
         $mirror = SQLSelectOne("SELECT ID FROM objects WHERE TITLE='SolarPlanner'");
@@ -1235,6 +1415,16 @@ EOD;
             $last = SQLSelectOne("SELECT * FROM solarplanner_planning_runs ORDER BY ID DESC LIMIT 1");
             if ($last && $last['ID']) {
                 $out['LAST_PLAN_STATUS']      = htmlspecialchars($last['STATUS']);
+                $statusMap = array(
+                    'feasible' => array('LANG_SP_STATUS_FEASIBLE', 'Здійсненний', 'label-success'),
+                    'infeasible' => array('LANG_SP_STATUS_INFEASIBLE', 'Нездійсненний', 'label-danger'),
+                    'no_forecast' => array('LANG_SP_STATUS_NO_FORECAST', 'Немає прогнозу', 'label-warning'),
+                    'error' => array('LANG_SP_STATUS_ERROR', 'Помилка', 'label-danger'),
+                );
+                $st = isset($statusMap[$last['STATUS']]) ? $statusMap[$last['STATUS']]
+                    : array(null, (string)$last['STATUS'], 'label-default');
+                $out['LAST_PLAN_STATUS_LABEL'] = htmlspecialchars($L($st[0], $st[1]));
+                $out['LAST_PLAN_STATUS_CLASS'] = $st[2];
                 $out['LAST_PLAN_TARGET_SOC']  = round((float)$last['TARGET_SOC_AT_07'], 1);
                 $out['LAST_PLAN_NIGHT_KWH']   = round((float)$last['NIGHT_IMPORT_KWH'], 2);
                 $out['LAST_PLAN_DAY_KWH']     = round((float)$last['DAY_IMPORT_KWH'], 2);
@@ -1250,6 +1440,18 @@ EOD;
                 $out['LAST_PLAN_PV_IMPLAUSIBLE'] = !empty($payload['pv_forecast_implausible']) ? 1 : 0;
                 $out['LAST_PLAN_PV_PER_KWP'] = isset($payload['pv_tomorrow_kwh_per_kwp']) && $payload['pv_tomorrow_kwh_per_kwp'] !== null
                     ? round((float)$payload['pv_tomorrow_kwh_per_kwp'], 2) : '';
+                $out['LAST_PLAN_PV_TODAY_KWH'] = isset($payload['pv_today_remaining_kwh'])
+                    ? round((float)$payload['pv_today_remaining_kwh'], 2) : '';
+                $out['LAST_PLAN_PV_SUSPECT'] = !empty($payload['pv_forecast_suspect']) ? 1 : 0;
+                $out['LAST_PLAN_FORECAST_QUALITY'] = isset($payload['forecast_quality'])
+                    ? htmlspecialchars((string)$payload['forecast_quality']) : '';
+                $cal = isset($payload['calibration']) && is_array($payload['calibration'])
+                    ? $payload['calibration'] : array();
+                $out['LAST_PLAN_CALIB_MAE']   = isset($cal['mae']) && $cal['mae'] !== null ? round((float)$cal['mae'], 2) : '—';
+                $out['LAST_PLAN_CALIB_BIAS']  = isset($cal['bias']) && $cal['bias'] !== null ? round((float)$cal['bias'], 2) : '—';
+                $out['LAST_PLAN_CALIB_N']     = isset($cal['n']) ? (int)$cal['n'] : 0;
+                $out['LAST_PLAN_CALIB_SCALE'] = isset($cal['scale']) ? round((float)$cal['scale'], 3) : '1.000';
+                $out['LAST_PLAN_CALIB_DATE']  = isset($cal['date_local']) ? htmlspecialchars($cal['date_local']) : '—';
                 // Render the explanation as safe HTML: each line as its own
                 // paragraph/list item so it is readable, not one run-on blob.
                 $lines = array();
@@ -1278,10 +1480,29 @@ EOD;
             }
         }
 
+        // Forecast-vs-actual series for the overview chart. Only verified days
+        // (stored by the calibration loop) are shown.
+        $series = array();
+        if (SQLSelectOne("SHOW TABLES LIKE 'solarplanner_calibration'")) {
+            $rows = SQLSelect("SELECT DATE_LOCAL, FORECAST_KWH, ACTUAL_KWH FROM solarplanner_calibration "
+                . "WHERE PROVIDER_ID='ensemble' AND FORECAST_KWH IS NOT NULL AND ACTUAL_KWH IS NOT NULL "
+                . "ORDER BY ID DESC LIMIT 14");
+            foreach (array_reverse($rows) as $r) {
+                $series[] = array(
+                    'date' => isset($r['DATE_LOCAL']) ? $r['DATE_LOCAL'] : '',
+                    'forecast' => round((float)$r['FORECAST_KWH'], 2),
+                    'actual' => round((float)$r['ACTUAL_KWH'], 2),
+                );
+            }
+        }
+        $out['PV_ACCURACY_JSON'] = json_encode($series, $jsonFlags);
+
         // Current telemetry mirror (from MajorDoMo properties, if mapped).
-        $out['SP_SOC']  = gg('SolarPlanner.CurrentSoc');
-        $out['SP_PV']   = gg('SolarPlanner.PvPower');
-        $out['SP_LOAD'] = gg('SolarPlanner.LoadPower');
+        // These values come from MajorDoMo properties (which may be fed by
+        // MQTT/HTTP integrations): HTML-escape before handing to the template.
+        $out['SP_SOC']  = htmlspecialchars((string)gg('SolarPlanner.CurrentSoc'), ENT_QUOTES, 'UTF-8');
+        $out['SP_PV']   = htmlspecialchars((string)gg('SolarPlanner.PvPower'), ENT_QUOTES, 'UTF-8');
+        $out['SP_LOAD'] = htmlspecialchars((string)gg('SolarPlanner.LoadPower'), ENT_QUOTES, 'UTF-8');
 
         // Cycle liveness.
         $cycleRun = (int)gg('cycle_solarplannerRun');
@@ -1297,7 +1518,9 @@ EOD;
     /** Flatten the diagnostic report into template-friendly rows. */
     private function populateDiagnostics(&$out)
     {
-        $force = !empty($_GET['force']);
+        // A forced refresh issues outbound HTTP and writes forecast/quota rows,
+        // so it needs the same CSRF token as other state-changing actions.
+        $force = !empty($_GET['force']) && $this->csrfValid();
         $rep = $this->runDiagnostics($force);
         if (empty($rep['ok'])) {
             $out['DIAG_ERROR'] = htmlspecialchars(isset($rep['error']) ? $rep['error'] : 'unknown');

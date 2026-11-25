@@ -39,3 +39,6 @@ data/
 
 # Captured provider responses (may contain private site data)
 fixtures/real/
+
+# Внутренние заметки расследования, не для публикации
+.agents/

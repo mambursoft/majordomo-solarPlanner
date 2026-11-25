@@ -14,6 +14,10 @@
  *  - Open-Meteo free API is non-commercial; data is CC BY 4.0 (attribution in
  *    NOTICE.md / UI footer).
  *
+ * Since 1.2.0: arrays with different tilt/azimuth get their OWN GTI request.
+ * Applying the first array's POA irradiance to every array is physically wrong
+ * for multi-orientation sites. Arrays sharing one orientation share a request.
+ *
  * No API key is required for the free Open-Meteo endpoint. Coordinates come
  * from private config and are never logged to the public repo.
  *
@@ -56,44 +60,83 @@ class OpenMeteoAdapter implements ForecastAdapter
 
     public function fetch($fromUtc, $toUtc, $critical = false)
     {
-        $can = $this->quota->canRequest($this->accountId, 1.0, $critical);
+        $groups = $this->orientationGroups();
+        $needUnits = count($groups);
+        $can = $this->quota->canRequest($this->accountId, $needUnits, $critical);
         if (!$can['allowed']) {
             return array('run' => null, 'status' => 'missing', 'detail' => 'quota: ' . $can['reason']);
         }
 
-        $url = $this->buildUrl($fromUtc, $toUtc);
-        $guard = $this->http->guardUrl($url);
-        if ($guard !== true) {
-            return array('run' => null, 'status' => 'unusable', 'detail' => 'ssrf: ' . $guard);
+        $responses = array();
+        $okAny = false;
+        $failedKwp = 0.0;
+        $totalKwp = 0.0;
+        foreach ($this->site['arrays'] as $a) {
+            $totalKwp += isset($a['kwp']) ? (float)$a['kwp'] : 0.0;
+        }
+        foreach ($groups as $key => $g) {
+            $url = $this->buildUrl($fromUtc, $toUtc, $g['sample']);
+            $guard = $this->http->guardUrl($url);
+            if ($guard !== true) {
+                $this->quota->recordFailure($this->accountId, 0);
+            } else {
+                $res = $this->http->get($url);
+                if ($res['status'] !== 200) {
+                    $this->quota->recordFailure($this->accountId, $res['status']);
+                } else {
+                    $data = json_decode($res['body'], true);
+                    if (is_array($data) && isset($data['hourly']['time'])) {
+                        $this->quota->recordSuccess($this->accountId, 1.0);
+                        $okAny = true;
+                        $responses[$key] = array('data' => $data, 'raw' => $res['body'], 'arrays' => $g['arrays']);
+                        continue;
+                    }
+                    $this->quota->recordFailure($this->accountId, 0);
+                }
+            }
+            // A failed orientation must not silently become zero generation.
+            foreach ($g['arrays'] as $a) {
+                $failedKwp += isset($a['kwp']) ? (float)$a['kwp'] : 0.0;
+            }
         }
 
-        $res = $this->http->get($url);
-        if ($res['status'] !== 200) {
-            $this->quota->recordFailure($this->accountId, $res['status']);
-            return array('run' => null, 'status' => 'unusable', 'detail' => 'http ' . $res['status']);
+        if (!$okAny) {
+            return array('run' => null, 'status' => 'unusable', 'detail' => 'no orientation request succeeded');
         }
-        $this->quota->recordSuccess($this->accountId, 1.0);
-
-        $data = json_decode($res['body'], true);
-        if (!is_array($data) || !isset($data['hourly']['time'])) {
-            return array('run' => null, 'status' => 'unusable', 'detail' => 'schema');
-        }
-
-        return $this->parse($data, $res['body'], $fromUtc, $toUtc);
+        // Compensate aggregate energy for the arrays whose request failed and
+        // flag the run as partial. This is a first-order estimate, not a claim
+        // of accuracy — but far safer than treating the missing kWp as zero.
+        $coverageFactor = ($totalKwp > 0 && $failedKwp > 0)
+            ? min(2.0, $totalKwp / max(0.001, $totalKwp - $failedKwp)) : 1.0;
+        return $this->parse($responses, $fromUtc, $toUtc, $coverageFactor, $failedKwp);
     }
 
-    private function buildUrl($fromUtc, $toUtc)
+    /** Group arrays by identical (tilt, azimuth) so one GTI request serves each group. */
+    private function orientationGroups()
+    {
+        $groups = array();
+        foreach ($this->site['arrays'] as $a) {
+            $tilt = isset($a['tilt_deg']) ? round((float)$a['tilt_deg'], 1) : 0.0;
+            $az = isset($a['azimuth_module_deg']) ? round((float)$a['azimuth_module_deg'], 1) : 180.0;
+            $key = $tilt . '|' . $az;
+            if (!isset($groups[$key])) {
+                $sample = $a;
+                $sample['tilt_deg'] = $tilt;
+                $sample['azimuth_module_deg'] = $az;
+                $groups[$key] = array('sample' => $sample, 'arrays' => array());
+            }
+            $aid = isset($a['array_id']) ? $a['array_id'] : (isset($a['id']) ? $a['id'] : 'array');
+            $groups[$key]['arrays'][$aid] = $a;
+        }
+        return $groups;
+    }
+
+    private function buildUrl($fromUtc, $toUtc, $arr)
     {
         $lat = (float)$this->site['lat'];
         $lon = (float)$this->site['lon'];
-
-        // Request GTI for the first array orientation; multiple arrays with
-        // differing tilt/azimuth would normally need multiple requests. For the
-        // base model we request one representative GTI plus temperature and
-        // apply per-array scaling in PvModel. Arrays sharing orientation reuse it.
-        $arr0 = $this->site['arrays'][0];
-        $tilt = (float)$arr0['tilt_deg'];
-        $omAz = PvModel::azimuthModuleToOpenMeteo((float)$arr0['azimuth_module_deg']);
+        $tilt = (float)$arr['tilt_deg'];
+        $omAz = PvModel::azimuthModuleToOpenMeteo((float)$arr['azimuth_module_deg']);
 
         $params = array(
             'latitude' => $lat,
@@ -109,56 +152,97 @@ class OpenMeteoAdapter implements ForecastAdapter
         return self::BASE . '?' . http_build_query($params);
     }
 
-    private function parse(array $data, $rawBody, $fromUtc, $toUtc)
+    private function parse(array $responses, $fromUtc, $toUtc, $coverageFactor = 1.0, $failedKwp = 0.0)
     {
         $run = new ForecastRun('open_meteo');
         $run->energyBasis = 'interval';
-        $run->modelId = isset($data['hourly']['model']) ? 'open-meteo' : 'open-meteo';
+        $run->modelId = 'open-meteo';
         $run->issuedAtUtc = null; // generationtime_ms is NOT the model issue time
         $run->validFromUtc = (int)$fromUtc;
         $run->validToUtc = (int)$toUtc;
-        $run->rawResponseHash = hash('sha256', $rawBody);
         $run->quotaState = $this->quota->snapshot($this->accountId);
         $run->locationConfigHash = isset($this->site['location_hash']) ? $this->site['location_hash'] : '';
         $run->pvConfigHash = isset($this->site['pv_hash']) ? $this->site['pv_hash'] : '';
         $run->qualityFlags[] = 'attribution:open-meteo CC BY 4.0';
+        if ($failedKwp > 0) {
+            $run->qualityFlags[] = 'partial_orientation_missing_kwp:' . round($failedKwp, 3);
+        }
 
-        $times = $data['hourly']['time'];
-        $gti = isset($data['hourly']['global_tilted_irradiance']) ? $data['hourly']['global_tilted_irradiance'] : array();
-        $temp = isset($data['hourly']['temperature_2m']) ? $data['hourly']['temperature_2m'] : array();
+        // Index each orientation response by timestamp.
+        $byTime = array();
+        $rawConcat = '';
+        $tempFallback = false;
+        $fallbackC = isset($this->site['om_default_temp_c']) && is_numeric($this->site['om_default_temp_c'])
+            ? (float)$this->site['om_default_temp_c'] : 10.0;
+        foreach ($responses as $key => $resp) {
+            $rawConcat .= $resp['raw'];
+            $times = $resp['data']['hourly']['time'];
+            $gti = isset($resp['data']['hourly']['global_tilted_irradiance'])
+                ? $resp['data']['hourly']['global_tilted_irradiance'] : array();
+            $temp = isset($resp['data']['hourly']['temperature_2m'])
+                ? $resp['data']['hourly']['temperature_2m'] : array();
+            $n = count($times);
+            for ($i = 0; $i < $n; $i++) {
+                $t = (int)$times[$i];
+                if (!isset($byTime[$t])) {
+                    $byTime[$t] = array('poa' => array(), 'gti' => array(), 'temp' => null,
+                        'temp_fallback' => false);
+                }
+                $meanWm2 = isset($gti[$i]) && $gti[$i] !== null ? (float)$gti[$i] : null;
+                $tC = isset($temp[$i]) && $temp[$i] !== null ? (float)$temp[$i] : null;
+                if ($tC === null && $byTime[$t]['temp'] === null) {
+                    $byTime[$t]['temp'] = $fallbackC;
+                    $byTime[$t]['temp_fallback'] = true;
+                    $tempFallback = true;
+                } elseif ($tC !== null) {
+                    // A later orientation with a real temperature wins; the
+                    // per-interval flag must reflect the value actually used.
+                    $byTime[$t]['temp'] = $tC;
+                    $byTime[$t]['temp_fallback'] = false;
+                }
+                $byTime[$t]['gti'][$key] = $meanWm2;
+            }
+        }
+        $run->rawResponseHash = hash('sha256', $rawConcat);
+        if ($tempFallback) {
+            $run->qualityFlags[] = 'temperature_fallback_used:' . $fallbackC;
+        }
 
-        $n = count($times);
-        for ($i = 0; $i < $n; $i++) {
+        ksort($byTime);
+        foreach ($byTime as $endUtc => $row) {
             // Open-Meteo hourly radiation is the MEAN over the PRECEDING hour.
-            // The timestamp labels the end of its averaging hour here; interval
-            // is [t-1h, t). We convert mean W/m2 to Wh/m2 over the hour.
-            $endUtc = (int)$times[$i];
             $startUtc = $endUtc - 3600;
             if ($endUtc <= $fromUtc || $startUtc >= $toUtc) {
                 continue;
             }
-            $meanWm2 = isset($gti[$i]) && $gti[$i] !== null ? (float)$gti[$i] : null;
-            $tC = isset($temp[$i]) && $temp[$i] !== null ? (float)$temp[$i] : null;
-
-            if ($meanWm2 === null) {
+            $hours = ($endUtc - $startUtc) / 3600.0;
+            $poaByArray = array();
+            $any = false;
+            foreach ($responses as $key => $resp) {
+                $meanWm2 = isset($row['gti'][$key]) ? $row['gti'][$key] : null;
+                if ($meanWm2 === null) {
+                    continue;
+                }
+                $any = true;
+                $poaWhm2 = $meanWm2 * $hours; // mean power * hours -> Wh/m2
+                foreach ($resp['arrays'] as $aid => $a) {
+                    $poaByArray[$aid] = $poaWhm2;
+                }
+            }
+            if (!$any) {
                 $run->addInterval($startUtc, $endUtc, null, array('is_missing' => true));
                 continue;
             }
-            $hours = ($endUtc - $startUtc) / 3600.0;
-            $poaWhm2 = $meanWm2 * $hours; // mean power * hours -> energy per m2
-            $poaByArray = array();
-            foreach ($this->site['arrays'] as $a) {
-                $aid = isset($a['array_id']) ? $a['array_id'] : (isset($a['id']) ? $a['id'] : 'array');
-                $poaByArray[$aid] = $poaWhm2;
-            }
-            $est = $this->pv->intervalEnergy($poaByArray, $tC === null ? 10.0 : $tC, $hours);
-            $run->addInterval($startUtc, $endUtc, $est['total_kwh'], array(
-                'pv_mean_power_kw' => $hours > 0 ? $est['total_kwh'] / $hours : 0.0,
+            $est = $this->pv->intervalEnergy($poaByArray, $row['temp'], $hours);
+            $kwh = $est['total_kwh'] * $coverageFactor;
+            $run->addInterval($startUtc, $endUtc, $kwh, array(
+                'pv_mean_power_kw' => $hours > 0 ? $kwh / $hours : 0.0,
                 'array_id' => 'aggregate',
+                'temp_fallback' => !empty($row['temp_fallback']) ? 1 : 0,
             ));
         }
 
-        $status = $run->coversHorizon($fromUtc, $toUtc) ? 'fresh' : 'partial';
+        $status = ($failedKwp <= 0 && $run->coversHorizon($fromUtc, $toUtc)) ? 'fresh' : 'partial';
         return array('run' => $run, 'status' => $status, 'detail' => 'ok');
     }
 }

@@ -63,6 +63,10 @@ class EnergySimulator
             'night_house_from_grid' => true,
             'grid_charge_target_soc' => $batt->maxSocPct,
             'reserve_is_hard' => true,
+            // Curtailment is not free: it wastes already-purchased hardware and
+            // potential export revenue. Included in cost so the optimizer does
+            // not prefer maximum cheap night import followed by PV curtailment.
+            'curtailment_penalty_per_kwh' => 0.05,
         ), $policy);
     }
 
@@ -102,6 +106,7 @@ class EnergySimulator
             'min_soc_pct' => 100.0,
             'full_reached_at_utc' => null,
             'invariant_errors' => array(),
+            'invariant_warnings' => array(),
         );
 
         foreach ($intervals as $idx => $iv) {
@@ -211,10 +216,13 @@ class EnergySimulator
 
             // ---- bookkeeping ----
             $socAfter = $batt->kwhToSoc($energy);
-            $cost = $gridImport * $price - $gridExport * $exportPrice;
+            $cost = $gridImport * $price - $gridExport * $exportPrice
+                + $curtail * (float)$this->policy['curtailment_penalty_per_kwh'];
 
-            // Invariant checks.
+            // Invariant checks. Hard errors make a candidate infeasible;
+            // topology-dependent advisories are warnings only.
             $errs = array();
+            $warns = array();
             if ($battCharge > 1e-9 && $battDischarge > 1e-9) {
                 $errs[] = 'simultaneous_charge_discharge';
             }
@@ -233,13 +241,14 @@ class EnergySimulator
                 $errs[] = 'discharge_power_exceeded';
             }
             // Energy conservation: sources == sinks for this interval.
-            $sources = $pv + $gridImport + $battDischarge * $batt->etaDischarge;
-            $sinks = $load + $gridExport + $curtail + $battCharge;
             // battDischarge*eta already delivered to load; charge consumes input.
-            if (abs(($pvUsed + $gridImport + $battDischarge * $batt->etaDischarge)
+            // Exported PV is a source too; omitting it produced a false
+            // balance_mismatch warning on every export interval.
+            if (abs(($pvUsed + $gridExport + $gridImport + $battDischarge * $batt->etaDischarge)
                     - ($load + $gridExport + $battCharge)) > 1e-6) {
-                // Not a hard error for every topology, but flagged for review.
-                $errs[] = 'balance_mismatch';
+                // Advisory for unusual topologies (e.g. AC-coupled curtailment),
+                // NOT a hard error — previously this could veto every candidate.
+                $warns[] = 'balance_mismatch';
             }
 
             $reserveBreached = $socAfter < ($batt->reserveSocPct - 1e-9);
@@ -268,6 +277,12 @@ class EnergySimulator
                         ? $agg['invariant_errors'][$e] + 1 : 1;
                 }
             }
+            if (!empty($warns)) {
+                foreach ($warns as $e) {
+                    $agg['invariant_warnings'][$e] = isset($agg['invariant_warnings'][$e])
+                        ? $agg['invariant_warnings'][$e] + 1 : 1;
+                }
+            }
 
             $rows[] = array(
                 'start_utc' => (int)$iv['start_utc'],
@@ -286,6 +301,7 @@ class EnergySimulator
                 'soc_pct' => round($socAfter, 3),
                 'reserve_breached' => $reserveBreached ? 1 : 0,
                 'invariant_errors' => $errs,
+                'invariant_warnings' => $warns,
             );
         }
 

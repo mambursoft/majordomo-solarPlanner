@@ -13,61 +13,60 @@
     <div class="col-xs-4 text-right">
       [#if CYCLE_ALIVE="1"#]
         <span class="label label-success" style="font-size: 12px; padding: 6px 10px; display: inline-block;">
-          <span class="glyphicon glyphicon-ok-sign"></span> <#LANG_SP_CYCLE_ON#> ([#CYCLE_TIME#])
+          <span class="glyphicon glyphicon-ok-sign" aria-hidden="true"></span> <#LANG_SP_CYCLE_ON#> ([#CYCLE_TIME#])
         </span>
       [#else#]
         <span class="label label-danger" style="font-size: 12px; padding: 6px 10px; display: inline-block;">
-          <span class="glyphicon glyphicon-remove-sign"></span> <#LANG_SP_CYCLE_OFF#> ([#CYCLE_TIME#])
+          <span class="glyphicon glyphicon-remove-sign" aria-hidden="true"></span> <#LANG_SP_CYCLE_OFF#> ([#CYCLE_TIME#])
         </span>
       [#endif#]
     </div>
   </div>
 
-  <!-- Messages -->
-  [#if SUCCESS#]
-    <div class="alert alert-success alert-dismissible" role="alert">
-      <button type="button" class="close" data-dismiss="alert">&times;</button>
-      <span class="glyphicon glyphicon-ok"></span> [#SUCCESS#]
-    </div>
-  [#endif#]
-  [#if ERROR#]
-    <div class="alert alert-danger alert-dismissible" role="alert">
-      <button type="button" class="close" data-dismiss="alert">&times;</button>
-      <span class="glyphicon glyphicon-exclamation-sign"></span> [#ERROR#]
-    </div>
-  [#endif#]
+  <!-- Messages: raw values are kept in text/plain script blocks and injected via
+       textContent so no HTML from a provider error can be executed. -->
+  <script type="text/plain" id="spMsgSuccess">[#SUCCESS#]</script>
+  <script type="text/plain" id="spMsgError">[#ERROR#]</script>
+  <div id="spSuccessBox" class="alert alert-success alert-dismissible" role="alert" style="display:none;">
+    <button type="button" class="close" data-dismiss="alert" aria-label="<#LANG_SP_CLOSE#>">&times;</button>
+    <span class="glyphicon glyphicon-ok" aria-hidden="true"></span> <span id="spSuccessText"></span>
+  </div>
+  <div id="spErrorBox" class="alert alert-danger alert-dismissible" role="alert" style="display:none;">
+    <button type="button" class="close" data-dismiss="alert" aria-label="<#LANG_SP_CLOSE#>">&times;</button>
+    <span class="glyphicon glyphicon-exclamation-sign" aria-hidden="true"></span> <span id="spErrorText"></span>
+  </div>
 
   <!-- Control mode banner -->
   <div class="alert [#if ARMED_BLOCKED="1"#]alert-warning[#else#]alert-info[#endif#]" style="margin-bottom: 15px;">
     <strong><#LANG_SP_CONTROL_MODE#>:</strong>
-    <span class="label label-primary">[#CONTROL_MODE_LABEL#]</span> <code style="font-size:11px;">[#CONTROL_MODE#]</code>
+    <span class="label label-primary">[#CONTROL_MODE_LABEL#]</span> <code style="font-size:12px;">[#CONTROL_MODE#]</code>
     &nbsp;|&nbsp; <#LANG_SP_ALLOWED_MODE#>: <span class="label label-default">[#ALLOWED_MODE_LABEL#]</span>
     [#if ARMED_BLOCKED="1"#] &nbsp;—&nbsp; <span class="text-danger"><#LANG_SP_ARMED_BLOCKED#></span>[#endif#]
     <div style="margin-top:6px; font-size:12px;" class="text-muted">[#CONTROL_MODE_DESC#]</div>
   </div>
 
-  <!-- Navigation Tabs -->
-  <ul class="nav nav-tabs" style="margin-bottom: 20px;">
-    <li class="[#if VIEW_MODE=="overview"#]active[#endif#]"><a href="?view_mode=overview"><span class="glyphicon glyphicon-dashboard"></span> <#LANG_SP_OVERVIEW#></a></li>
-    <li class="[#if VIEW_MODE=="plan"#]active[#endif#]"><a href="?view_mode=plan"><span class="glyphicon glyphicon-calendar"></span> <#LANG_SP_PLAN#></a></li>
-    <li class="[#if VIEW_MODE=="providers"#]active[#endif#]"><a href="?view_mode=providers"><span class="glyphicon glyphicon-cloud"></span> <#LANG_SP_PROVIDERS#></a></li>
-    <li class="[#if VIEW_MODE=="deye"#]active[#endif#]"><a href="?view_mode=deye"><span class="glyphicon glyphicon-flash"></span> <#LANG_SP_DEYE#></a></li>
-    <li class="[#if VIEW_MODE=="safety"#]active[#endif#]"><a href="?view_mode=safety"><span class="glyphicon glyphicon-lock"></span> <#LANG_SP_SAFETY#></a></li>
-    <li class="[#if VIEW_MODE=="diagnostics"#]active[#endif#]"><a href="?view_mode=diagnostics"><span class="glyphicon glyphicon-wrench"></span> <#LANG_SP_DIAG#></a></li>
-    <li class="[#if VIEW_MODE=="settings"#]active[#endif#]"><a href="?view_mode=settings"><span class="glyphicon glyphicon-cog"></span> <#LANG_SP_SETTINGS#></a></li>
+  <!-- Navigation Tabs (flex-wrap is the responsive fallback for narrow screens) -->
+  <ul class="nav nav-tabs" style="margin-bottom: 20px; display: flex; flex-wrap: wrap;">
+    <li class="[#if VIEW_MODE=="overview"#]active[#endif#]"><a href="[#SP_BASE_URL#]view_mode=overview"><span class="glyphicon glyphicon-dashboard" aria-hidden="true"></span> <#LANG_SP_OVERVIEW#></a></li>
+    <li class="[#if VIEW_MODE=="plan"#]active[#endif#]"><a href="[#SP_BASE_URL#]view_mode=plan"><span class="glyphicon glyphicon-calendar" aria-hidden="true"></span> <#LANG_SP_PLAN#></a></li>
+    <li class="[#if VIEW_MODE=="providers"#]active[#endif#]"><a href="[#SP_BASE_URL#]view_mode=providers"><span class="glyphicon glyphicon-cloud" aria-hidden="true"></span> <#LANG_SP_PROVIDERS#></a></li>
+    <li class="[#if VIEW_MODE=="deye"#]active[#endif#]"><a href="[#SP_BASE_URL#]view_mode=deye"><span class="glyphicon glyphicon-flash" aria-hidden="true"></span> <#LANG_SP_DEYE#></a></li>
+    <li class="[#if VIEW_MODE=="safety"#]active[#endif#]"><a href="[#SP_BASE_URL#]view_mode=safety"><span class="glyphicon glyphicon-lock" aria-hidden="true"></span> <#LANG_SP_SAFETY#></a></li>
+    <li class="[#if VIEW_MODE=="diagnostics"#]active[#endif#]"><a href="[#SP_BASE_URL#]view_mode=diagnostics"><span class="glyphicon glyphicon-wrench" aria-hidden="true"></span> <#LANG_SP_DIAG#></a></li>
+    <li class="[#if VIEW_MODE=="settings"#]active[#endif#]"><a href="[#SP_BASE_URL#]view_mode=settings"><span class="glyphicon glyphicon-cog" aria-hidden="true"></span> <#LANG_SP_SETTINGS#></a></li>
   </ul>
 
   <!-- Blocking parameters -->
   [#if HAS_BLOCKING="1"#]
   <div class="panel panel-warning">
-    <div class="panel-heading"><strong><span class="glyphicon glyphicon-alert"></span> <#LANG_SP_BLOCKING_TITLE#></strong></div>
+    <div class="panel-heading"><strong><span class="glyphicon glyphicon-alert" aria-hidden="true"></span> <#LANG_SP_BLOCKING_TITLE#></strong></div>
     <div class="panel-body">
       <ul>
       [#begin BLOCKING_PARAMS#]
         <li><code>[#KEY#]</code> — [#LABEL#]</li>
       [#end BLOCKING_PARAMS#]
       </ul>
-      <p class="text-muted" style="margin-bottom: 0;"><#LANG_SP_BLOCKING_NOTE#></p>
+      <p class="text-muted" style="margin-bottom: 0; font-size:12px;"><#LANG_SP_BLOCKING_NOTE#></p>
     </div>
   </div>
   [#endif#]
@@ -82,42 +81,94 @@
       </div></div></div>
       <div class="col-md-4"><div class="panel panel-default"><div class="panel-body">
         <h4><#LANG_SP_PV_TOMORROW#> <small class="text-muted">[#LAST_PLAN_PV_DATE#]</small></h4>
-        <div style="font-size: 34px; font-weight: bold;">[#LAST_PLAN_PV_KWH#] <small>кВт·год</small></div>
-        <small class="text-muted"><#LANG_SP_LOAD_TOMORROW#>: [#LAST_PLAN_LOAD_KWH#] кВт·год</small>
+        <div style="font-size: 34px; font-weight: bold;">[#LAST_PLAN_PV_KWH#] <small><#LANG_SP_KWH#></small></div>
+        <div class="text-muted" style="font-size:12px; margin-top:4px;"><#LANG_SP_PV_WINDOW#></div>
+        <small class="text-muted" style="font-size:12px;"><#LANG_SP_LOAD_TOMORROW#>: [#LAST_PLAN_LOAD_KWH#] <#LANG_SP_KWH#></small>
         [#if LAST_PLAN_PV_IMPLAUSIBLE=="1"#]
-        <div class="text-warning" style="font-size:11px; margin-top:6px;">
-          <span class="glyphicon glyphicon-warning-sign"></span> <#LANG_SP_PV_IMPLAUSIBLE#> ([#LAST_PLAN_PV_PER_KWP#] кВт·год/кВтп)
+        <div class="text-warning" style="font-size:12px; margin-top:6px;">
+          <span class="glyphicon glyphicon-warning-sign" aria-hidden="true"></span> <#LANG_SP_PV_IMPLAUSIBLE#> ([#LAST_PLAN_PV_PER_KWP#] <#LANG_SP_KWH_PER_KWP#>)
         </div>
         [#endif#]
       </div></div></div>
       <div class="col-md-4"><div class="panel panel-default"><div class="panel-body">
         <h4><#LANG_SP_NIGHT_IMPORT#></h4>
-        <div style="font-size: 34px; font-weight: bold;">[#LAST_PLAN_NIGHT_KWH#] <small>кВт·год</small></div>
-        <small class="text-muted"><#LANG_SP_DAY_IMPORT#>: [#LAST_PLAN_DAY_KWH#] кВт·год</small>
+        <div style="font-size: 34px; font-weight: bold;">[#LAST_PLAN_NIGHT_KWH#] <small><#LANG_SP_KWH#></small></div>
+        <small class="text-muted" style="font-size:12px;"><#LANG_SP_DAY_IMPORT#>: [#LAST_PLAN_DAY_KWH#] <#LANG_SP_KWH#></small>
       </div></div></div>
     </div>
 
+    <!-- PV window and context numbers: explain why the headline can change -->
     <div class="panel panel-default">
-      <div class="panel-heading"><strong><#LANG_SP_EXPLANATION#></strong> <span class="label label-default">[#LAST_PLAN_STATUS#]</span></div>
+      <div class="panel-heading"><strong><span class="glyphicon glyphicon-time" aria-hidden="true"></span> <#LANG_SP_PV_WINDOW#></strong></div>
+      <div class="panel-body">
+        <p class="text-muted" style="margin-top:0; font-size:12px;"><#LANG_SP_PV_WINDOW#></p>
+        <div class="row" style="font-size:12px;">
+          <div class="col-xs-4"><small class="text-muted"><#LANG_SP_PV_HORIZON#></small><div><b>[#LAST_PLAN_PV_HORIZON_KWH#]</b> <#LANG_SP_KWH#></div></div>
+          <div class="col-xs-4"><small class="text-muted"><#LANG_SP_PV_DAY_AFTER#></small><div><b>[#LAST_PLAN_PV_DAYAFTER_KWH#]</b> <#LANG_SP_KWH#></div></div>
+          <div class="col-xs-4"><small class="text-muted"><#LANG_SP_PV_TODAY_REMAINING#></small><div><b>[#LAST_PLAN_PV_TODAY_KWH#]</b> <#LANG_SP_KWH#></div></div>
+        </div>
+      </div>
+    </div>
+
+    [#if LAST_PLAN_PV_SUSPECT="1"#]
+    <div class="alert alert-warning" role="alert" style="font-size:12px;">
+      <span class="glyphicon glyphicon-warning-sign" aria-hidden="true"></span> <#LANG_SP_PV_SUSPECT#>
+    </div>
+    [#endif#]
+
+    <div class="panel panel-default">
+      <div class="panel-heading"><strong><#LANG_SP_EXPLANATION#></strong> <span class="label [#LAST_PLAN_STATUS_CLASS#]" title="[#LAST_PLAN_STATUS#]">[#LAST_PLAN_STATUS_LABEL#]</span></div>
       <div class="panel-body">
         [#if LAST_PLAN_TARGET_IS_SUGGESTION=="1"#]
-        <div class="alert alert-warning" style="margin-bottom:12px;">
-          <span class="glyphicon glyphicon-info-sign"></span>
+        <div class="alert alert-warning" style="margin-bottom:12px; font-size:12px;">
+          <span class="glyphicon glyphicon-info-sign" aria-hidden="true"></span>
           <#LANG_SP_TARGET_SUGGESTION_NOTE#> <strong>[#LAST_PLAN_TARGET_SOC#]%</strong>
         </div>
         [#endif#]
         <div class="sp-explanation" style="line-height:1.7;">[#LAST_PLAN_EXPLANATION#]</div>
         <div style="margin-top:12px;">
-          <button class="btn btn-primary" onclick="spRunPlan()"><span class="glyphicon glyphicon-refresh"></span> <#LANG_SP_RUN_PLAN#></button>
-          <span class="text-muted" style="margin-left: 10px;"><#LANG_SP_SHADOW_HINT#></span>
+          <button class="btn btn-primary" type="button" onclick="spRunPlan()"><span class="glyphicon glyphicon-refresh" aria-hidden="true"></span> <#LANG_SP_RUN_PLAN#></button>
+          <span class="text-muted" style="margin-left: 10px; font-size:12px;"><#LANG_SP_SHADOW_HINT#></span>
+          <div id="spAjaxStatus" class="sp-status" role="status" aria-live="polite"></div>
         </div>
+      </div>
+    </div>
+
+    <!-- Accuracy / calibration metrics -->
+    <div class="panel panel-default">
+      <div class="panel-heading"><strong><span class="glyphicon glyphicon-stats" aria-hidden="true"></span> <#LANG_SP_ACCURACY#></strong></div>
+      <div class="panel-body">
+        <div class="row" style="font-size:12px;">
+          <div class="col-xs-6 col-md-2"><small class="text-muted"><#LANG_SP_ACCURACY_QUALITY#></small><div><b>[#LAST_PLAN_FORECAST_QUALITY#]</b></div></div>
+          <div class="col-xs-6 col-md-2"><small class="text-muted"><#LANG_SP_ACCURACY_MAE#></small><div><b>[#LAST_PLAN_CALIB_MAE#]</b></div></div>
+          <div class="col-xs-6 col-md-2"><small class="text-muted"><#LANG_SP_ACCURACY_BIAS#></small><div><b>[#LAST_PLAN_CALIB_BIAS#]</b></div></div>
+          <div class="col-xs-6 col-md-2"><small class="text-muted"><#LANG_SP_ACCURACY_SAMPLES#></small><div><b>[#LAST_PLAN_CALIB_N#]</b></div></div>
+          <div class="col-xs-6 col-md-2"><small class="text-muted"><#LANG_SP_ACCURACY_SCALE#></small><div><b>[#LAST_PLAN_CALIB_SCALE#]</b></div></div>
+          <div class="col-xs-6 col-md-2"><small class="text-muted"><#LANG_SP_ACCURACY_LAST_DATE#></small><div><b>[#LAST_PLAN_CALIB_DATE#]</b></div></div>
+        </div>
+        <hr style="margin:10px 0;">
+        <div style="font-size:12px;">
+          <strong><#LANG_SP_FORECAST_VS_ACTUAL#></strong>
+          <span class="pull-right" style="font-size:12px;">
+            <span style="display:inline-block;width:10px;height:10px;background:#5bc0de;"></span> <#LANG_SP_FORECAST#>
+            &nbsp; <span style="display:inline-block;width:10px;height:10px;background:#5cb85c;"></span> <#LANG_SP_ACTUAL#>
+          </span>
+        </div>
+        <div id="spAccChart" style="margin-top:8px;"></div>
       </div>
     </div>
 
     <div class="panel panel-default">
       <div class="panel-heading"><strong><#LANG_SP_LIVE#></strong></div>
       <div class="panel-body">
-        SOC: <b>[#SP_SOC#]%</b> &nbsp; PV: <b>[#SP_PV#] кВт</b> &nbsp; <#LANG_SP_LOAD#>: <b>[#SP_LOAD#] кВт</b>
+        <span title="<#LANG_SP_LIVE#> SOC">SOC: <b>[#SP_SOC#]%</b></span> &nbsp;
+        <span title="<#LANG_SP_LIVE#> PV">PV: <b>[#SP_PV#] <#LANG_SP_KW#></b></span> &nbsp;
+        <span title="<#LANG_SP_LIVE#> <#LANG_SP_LOAD#>"><#LANG_SP_LOAD#>: <b>[#SP_LOAD#] <#LANG_SP_KW#></b></span>
+        [#if CYCLE_ALIVE="0"#]
+        <div class="alert alert-warning" style="font-size:12px; padding:8px 12px; margin:8px 0 0;">
+          <span class="glyphicon glyphicon-time" aria-hidden="true"></span> <#LANG_SP_STALE_DATA#> ([#CYCLE_TIME#])
+        </div>
+        [#endif#]
       </div>
     </div>
   [#endif#]
@@ -125,16 +176,16 @@
   <!-- ===================== PLAN ===================== -->
   [#if VIEW_MODE=="plan"#]
     <div class="panel panel-default">
-      <div class="panel-heading"><strong><#LANG_SP_PLAN#></strong> — <span class="label label-default">[#LAST_PLAN_STATUS#]</span></div>
+      <div class="panel-heading"><strong><#LANG_SP_PLAN#></strong> — <span class="label [#LAST_PLAN_STATUS_CLASS#]" title="[#LAST_PLAN_STATUS#]">[#LAST_PLAN_STATUS_LABEL#]</span></div>
       <div class="panel-body">
         <table class="table table-condensed">
           <tr><td><#LANG_SP_TARGET_SOC#></td><td><b>[#LAST_PLAN_TARGET_SOC#]%</b></td></tr>
-          <tr><td><#LANG_SP_NIGHT_IMPORT#></td><td>[#LAST_PLAN_NIGHT_KWH#] кВт·год</td></tr>
-          <tr><td><#LANG_SP_DAY_IMPORT#></td><td>[#LAST_PLAN_DAY_KWH#] кВт·год</td></tr>
-          <tr><td><#LANG_SP_PV_TOMORROW#></td><td>[#LAST_PLAN_PV_KWH#] кВт·год</td></tr>
-          <tr><td><#LANG_SP_LOAD_TOMORROW#></td><td>[#LAST_PLAN_LOAD_KWH#] кВт·год</td></tr>
+          <tr><td><#LANG_SP_NIGHT_IMPORT#></td><td>[#LAST_PLAN_NIGHT_KWH#] <#LANG_SP_KWH#></td></tr>
+          <tr><td><#LANG_SP_DAY_IMPORT#></td><td>[#LAST_PLAN_DAY_KWH#] <#LANG_SP_KWH#></td></tr>
+          <tr><td><#LANG_SP_PV_TOMORROW#></td><td>[#LAST_PLAN_PV_KWH#] <#LANG_SP_KWH#></td></tr>
+          <tr><td><#LANG_SP_LOAD_TOMORROW#></td><td>[#LAST_PLAN_LOAD_KWH#] <#LANG_SP_KWH#></td></tr>
         </table>
-        <p class="text-muted">[#LAST_PLAN_EXPLANATION#]</p>
+        <p class="text-muted" style="font-size:12px;">[#LAST_PLAN_EXPLANATION#]</p>
       </div>
     </div>
   [#endif#]
@@ -143,13 +194,13 @@
   [#if VIEW_MODE=="providers"#]
     <div class="panel panel-default">
       <div class="panel-heading"><strong><#LANG_SP_PROVIDERS#></strong></div>
-      <div class="panel-body">
-        <p>Open-Meteo: [#if CFG_OPEN_METEO_ENABLED="1"#]<span class="label label-success">on</span>[#else#]<span class="label label-default">off</span>[#endif#]
-          <span class="text-muted">— погода + локальна PV-модель, без ключа, некомерційне використання.</span></p>
-        <p>Forecast.Solar: [#if CFG_FORECAST_SOLAR_ENABLED="1"#]<span class="label label-success">on</span>[#else#]<span class="label label-default">off</span>[#endif#]
-          <span class="text-muted">— готовий прогноз PV, квота за документацією.</span></p>
-        <p>Solcast: [#if CFG_SOLCAST_ENABLED="1"#]<span class="label label-success">on</span>[#else#]<span class="label label-default">off</span>[#endif#]
-          <span class="text-muted">— домашній доступ, ~10 запитів/добу, частину зарезервовано на нічне уточнення.</span></p>
+      <div class="panel-body" style="font-size:12px;">
+        <p>Open-Meteo: [#if CFG_OPEN_METEO_ENABLED="1"#]<span class="label label-success"><#LANG_SP_ON#></span>[#else#]<span class="label label-default"><#LANG_SP_OFF#></span>[#endif#]
+          <span class="text-muted">— <#LANG_SP_PROV_OPEN_METEO_DESC#></span></p>
+        <p>Forecast.Solar: [#if CFG_FORECAST_SOLAR_ENABLED="1"#]<span class="label label-success"><#LANG_SP_ON#></span>[#else#]<span class="label label-default"><#LANG_SP_OFF#></span>[#endif#]
+          <span class="text-muted">— <#LANG_SP_PROV_FORECAST_SOLAR_DESC#></span></p>
+        <p>Solcast: [#if CFG_SOLCAST_ENABLED="1"#]<span class="label label-success"><#LANG_SP_ON#></span>[#else#]<span class="label label-default"><#LANG_SP_OFF#></span>[#endif#]
+          <span class="text-muted">— <#LANG_SP_PROV_SOLCAST_DESC#></span></p>
         <p class="text-muted" style="margin-bottom: 0;"><#LANG_SP_PROVIDERS_NOTE#></p>
       </div>
     </div>
@@ -162,59 +213,60 @@
       <p style="margin:6px 0 0;"><#LANG_SP_DEYE_WHERE#></p>
     </div>
 
-    <form method="post" action="?">
+    <form method="post" action="[#SP_BASE_URL#]">
       <input type="hidden" name="action" value="save_settings">
+      <input type="hidden" name="sp_csrf" value="[#SP_CSRF#]">
       <div class="panel panel-default">
-        <div class="panel-heading"><strong><span class="glyphicon glyphicon-flash"></span> <#LANG_SP_DEYE_ACCESS_TITLE#></strong></div>
+        <div class="panel-heading"><strong><span class="glyphicon glyphicon-flash" aria-hidden="true"></span> <#LANG_SP_DEYE_ACCESS_TITLE#></strong></div>
         <div class="panel-body">
           <div class="row">
             <div class="col-md-3 form-group">
-              <label><#LANG_SP_DEYE_TRANSPORT_L#></label>
-              <select class="form-control" name="transport">
-                <option value="mdm_property" [#if CFG_TRANSPORT=="mdm_property"#]selected[#endif#]>mdm_property (через MajorDoMo)</option>
-                <option value="modbus_tcp" [#if CFG_TRANSPORT=="modbus_tcp"#]selected[#endif#]>modbus_tcp (порт 502)</option>
-                <option value="logger_tcp" [#if CFG_TRANSPORT=="logger_tcp"#]selected[#endif#]>logger_tcp (порт 8899)</option>
+              <label for="spDeyeTransport"><#LANG_SP_DEYE_TRANSPORT_L#></label>
+              <select class="form-control" id="spDeyeTransport" name="transport">
+                <option value="mdm_property" [#if CFG_TRANSPORT=="mdm_property"#]selected[#endif#]>mdm_property (<#LANG_SP_TRANSPORT_MDM_OPT#>)</option>
+                <option value="modbus_tcp" [#if CFG_TRANSPORT=="modbus_tcp"#]selected[#endif#]>modbus_tcp (<#LANG_SP_TRANSPORT_502#>)</option>
+                <option value="logger_tcp" [#if CFG_TRANSPORT=="logger_tcp"#]selected[#endif#]>logger_tcp (<#LANG_SP_TRANSPORT_8899#>)</option>
                 <option value="rs485" [#if CFG_TRANSPORT=="rs485"#]selected[#endif#]>rs485</option>
               </select>
-              <span class="help-block" style="font-size:11px;"><#LANG_SP_H_DEYE_TRANSPORT#></span>
+              <span class="help-block" style="font-size:12px;"><#LANG_SP_H_DEYE_TRANSPORT#></span>
             </div>
             [#if TRANSPORT_IS_MDM=="1"#]
             <div class="col-md-9 form-group">
-              <label>&nbsp;</label>
-              <div class="alert alert-info" style="font-size:12px; padding:8px 12px; margin:0;">
-                <span class="glyphicon glyphicon-info-sign"></span> <#LANG_SP_H_TRANSPORT_MDM#>
+              <label for="spMdmNote">&nbsp;</label>
+              <div id="spMdmNote" class="alert alert-info" style="font-size:12px; padding:8px 12px; margin:0;">
+                <span class="glyphicon glyphicon-info-sign" aria-hidden="true"></span> <#LANG_SP_H_TRANSPORT_MDM#>
               </div>
             </div>
             [#else#]
             <div class="col-md-3 form-group">
-              <label><#LANG_SP_DEYE_HOST#></label>
-              <input class="form-control" name="deye_host" value="[#CFG_DEYE_HOST#]" placeholder="напр. 172.16.0.x">
-              <span class="help-block" style="font-size:11px;"><#LANG_SP_H_DEYE_HOST#></span>
+              <label for="spDeyeHost"><#LANG_SP_DEYE_HOST#></label>
+              <input class="form-control" id="spDeyeHost" name="deye_host" value="[#CFG_DEYE_HOST#]" placeholder="<#LANG_SP_EG#> 172.16.0.x">
+              <span class="help-block" style="font-size:12px;"><#LANG_SP_H_DEYE_HOST#></span>
             </div>
             <div class="col-md-2 form-group">
-              <label><#LANG_SP_DEYE_PORT#></label>
-              <input class="form-control" name="deye_port" value="[#CFG_DEYE_PORT#]" placeholder="502 / 8899">
+              <label for="spDeyePort"><#LANG_SP_DEYE_PORT#></label>
+              <input class="form-control" id="spDeyePort" name="deye_port" type="number" min="1" max="65535" step="1" value="[#CFG_DEYE_PORT#]" placeholder="502 / 8899">
             </div>
             <div class="col-md-2 form-group">
-              <label><#LANG_SP_DEYE_SERIAL#></label>
-              <input class="form-control" name="deye_serial" value="[#CFG_DEYE_SERIAL#]" placeholder="(приватне)">
-              <span class="help-block" style="font-size:11px;"><#LANG_SP_H_PRIVATE#></span>
+              <label for="spDeyeSerial"><#LANG_SP_DEYE_SERIAL#></label>
+              <input class="form-control" id="spDeyeSerial" name="deye_serial" value="[#CFG_DEYE_SERIAL#]" placeholder="<#LANG_SP_PRIVATE#>">
+              <span class="help-block" style="font-size:12px;"><#LANG_SP_H_PRIVATE#></span>
             </div>
             [#endif#]
             <div class="col-md-2 form-group">
-              <label><#LANG_SP_FIRMWARE#></label>
-              <input class="form-control" name="firmware" value="[#CFG_FIRMWARE#]" placeholder="напр. 0121-1185-1807">
-              <span class="help-block" style="font-size:11px;"><#LANG_SP_H_FIRMWARE#></span>
+              <label for="spFirmware"><#LANG_SP_FIRMWARE#></label>
+              <input class="form-control" id="spFirmware" name="firmware" value="[#CFG_FIRMWARE#]" placeholder="<#LANG_SP_EG#> 0121-1185-1807">
+              <span class="help-block" style="font-size:12px;"><#LANG_SP_H_FIRMWARE#></span>
             </div>
           </div>
-          <button type="submit" class="btn btn-success btn-sm"><span class="glyphicon glyphicon-floppy-disk"></span> <#LANG_SP_SAVE#></button>
+          <button type="submit" class="btn btn-success btn-sm"><span class="glyphicon glyphicon-floppy-disk" aria-hidden="true"></span> <#LANG_SP_SAVE#></button>
         </div>
       </div>
     </form>
 
     <div class="panel panel-default">
       <div class="panel-heading"><strong><#LANG_SP_DEYE#></strong></div>
-      <div class="panel-body">
+      <div class="panel-body" style="font-size:12px;">
         <p><#LANG_SP_DEYE_NOTE#></p>
         <ul>
           <li><#LANG_SP_DEYE_SLOTS#></li>
@@ -223,7 +275,7 @@
           <li><#LANG_SP_DEYE_NOSCAN#></li>
         </ul>
         <p><#LANG_SP_PROFILE_VERIFIED#>:
-          [#if CFG_PROFILE_VERIFIED="1"#]<span class="label label-success">так</span>[#else#]<span class="label label-danger">ні</span>[#endif#]</p>
+          [#if CFG_PROFILE_VERIFIED="1"#]<span class="label label-success"><#LANG_SP_YES#></span>[#else#]<span class="label label-danger"><#LANG_SP_NO#></span>[#endif#]</p>
       </div>
     </div>
   [#endif#]
@@ -231,13 +283,14 @@
   <!-- ===================== SAFETY ===================== -->
   [#if VIEW_MODE=="safety"#]
     <div class="panel panel-default">
-      <div class="panel-heading"><strong><span class="glyphicon glyphicon-lock"></span> <#LANG_SP_SAFETY_MODE_TITLE#></strong></div>
+      <div class="panel-heading"><strong><span class="glyphicon glyphicon-lock" aria-hidden="true"></span> <#LANG_SP_SAFETY_MODE_TITLE#></strong></div>
       <div class="panel-body">
         <p><#LANG_SP_SAFETY_INTRO#></p>
-        <form method="get" action="?" class="form-inline" style="margin-bottom: 8px;">
+        <form method="post" action="[#SP_BASE_URL#]" class="form-inline" style="margin-bottom: 8px;" onsubmit="return confirm('<#LANG_SP_ARMED_CONFIRM#>')">
           <input type="hidden" name="action" value="set_mode">
-          <label style="margin-right:8px;"><#LANG_SP_CHOOSE_MODE#>:</label>
-          <select name="control_mode" class="form-control" style="max-width: 320px;">
+          <input type="hidden" name="sp_csrf" value="[#SP_CSRF#]">
+          <label for="spControlMode" style="margin-right:8px;"><#LANG_SP_CHOOSE_MODE#>:</label>
+          <select id="spControlMode" name="control_mode" class="form-control" style="max-width: 320px;">
             <option value="observe" [#if CONTROL_MODE=="observe"#]selected[#endif#]><#LANG_SP_STATE_OBSERVE#> (observe)</option>
             <option value="shadow" [#if CONTROL_MODE=="shadow"#]selected[#endif#]><#LANG_SP_STATE_SHADOW#> (shadow)</option>
             <option value="armed" [#if CONTROL_MODE=="armed"#]selected[#endif#]><#LANG_SP_STATE_ARMED#> (armed)</option>
@@ -245,15 +298,15 @@
           <button class="btn btn-warning" type="submit"><#LANG_SP_SET_MODE#></button>
         </form>
         <p class="text-muted" style="font-size:12px;"><#LANG_SP_SAFETY_PICK_HINT#></p>
-        [#if ARMED_BLOCKED="1"#]<p class="text-danger" style="margin-top: 10px;"><span class="glyphicon glyphicon-alert"></span> <#LANG_SP_ARMED_BLOCKED#></p>[#endif#]
+        [#if ARMED_BLOCKED="1"#]<p class="text-danger" style="margin-top: 10px; font-size:12px;"><span class="glyphicon glyphicon-alert" aria-hidden="true"></span> <#LANG_SP_ARMED_BLOCKED#></p>[#endif#]
       </div>
     </div>
 
     <!-- Plain-language reference of every state -->
     <div class="panel panel-default">
-      <div class="panel-heading"><strong><span class="glyphicon glyphicon-info-sign"></span> <#LANG_SP_STATES_TITLE#></strong></div>
+      <div class="panel-heading"><strong><span class="glyphicon glyphicon-info-sign" aria-hidden="true"></span> <#LANG_SP_STATES_TITLE#></strong></div>
       <div class="panel-body">
-        <p class="text-muted"><#LANG_SP_STATES_INTRO#></p>
+        <p class="text-muted" style="font-size:12px;"><#LANG_SP_STATES_INTRO#></p>
         <table class="table table-striped table-condensed">
           <thead>
             <tr>
@@ -279,16 +332,16 @@
   <!-- ===================== DIAGNOSTICS ===================== -->
   [#if VIEW_MODE=="diagnostics"#]
     [#if DIAG_ERROR#]
-      <div class="alert alert-danger"><#LANG_SP_DIAG_FAIL#>: [#DIAG_ERROR#]</div>
+      <div class="alert alert-danger" style="font-size:12px;"><#LANG_SP_DIAG_FAIL#>: [#DIAG_ERROR#]</div>
     [#endif#]
 
     <div class="panel panel-default">
       <div class="panel-heading">
-        <strong><span class="glyphicon glyphicon-wrench"></span> <#LANG_SP_DIAG_ENV_TITLE#></strong>
-        <a href="?view_mode=diagnostics" class="btn btn-default btn-xs pull-right"><span class="glyphicon glyphicon-refresh"></span> <#LANG_SP_DIAG_RECHECK#></a>
+        <strong><span class="glyphicon glyphicon-wrench" aria-hidden="true"></span> <#LANG_SP_DIAG_ENV_TITLE#></strong>
+        <a href="[#SP_BASE_URL#]view_mode=diagnostics" class="btn btn-default btn-xs pull-right"><span class="glyphicon glyphicon-refresh" aria-hidden="true"></span> <#LANG_SP_DIAG_RECHECK#></a>
       </div>
       <div class="panel-body">
-        <p class="text-muted" style="margin-top:0;"><#LANG_SP_DIAG_INTRO#></p>
+        <p class="text-muted" style="margin-top:0; font-size:12px;"><#LANG_SP_DIAG_INTRO#></p>
         <table class="table table-condensed">
           <tbody>
           [#begin DIAG_CHECKS#]
@@ -304,11 +357,11 @@
     </div>
 
     <div class="panel panel-default">
-      <div class="panel-heading"><strong><span class="glyphicon glyphicon-cloud"></span> <#LANG_SP_DIAG_PROV_TITLE#></strong>
+      <div class="panel-heading"><strong><span class="glyphicon glyphicon-cloud" aria-hidden="true"></span> <#LANG_SP_DIAG_PROV_TITLE#></strong>
         &nbsp; <span class="label [#if DIAG_USABLE="0"#]label-danger[#else#]label-success[#endif#]"><#LANG_SP_DIAG_USABLE#>: [#DIAG_USABLE#]</span>
       </div>
       <div class="panel-body">
-        [#if DIAG_SUN#]<p class="text-muted" style="margin-top:0;"><span class="glyphicon glyphicon-time"></span> [#DIAG_SUN#]</p>[#endif#]
+        [#if DIAG_SUN#]<p class="text-muted" style="margin-top:0; font-size:12px;"><span class="glyphicon glyphicon-time" aria-hidden="true"></span> [#DIAG_SUN#]</p>[#endif#]
         <table class="table table-striped table-condensed">
           <thead><tr>
             <th><#LANG_SP_DIAG_COL_PROV#></th>
@@ -331,64 +384,98 @@
           [#end DIAG_PROVIDERS#]
           </tbody>
         </table>
-        <button class="btn btn-primary" onclick="spRunPlan()"><span class="glyphicon glyphicon-refresh"></span> <#LANG_SP_RUN_PLAN#></button>
-        <a class="btn btn-default" href="?view_mode=diagnostics&force=1"><span class="glyphicon glyphicon-cloud-download"></span> <#LANG_SP_DIAG_FORCE#></a>
-        <span class="text-muted" style="margin-left:10px;"><#LANG_SP_DIAG_RUNPLAN_HINT#></span>
+        <button class="btn btn-primary" type="button" onclick="spRunPlan()"><span class="glyphicon glyphicon-refresh" aria-hidden="true"></span> <#LANG_SP_RUN_PLAN#></button>
+        <a class="btn btn-default" href="[#SP_BASE_URL#]view_mode=diagnostics&amp;force=1&amp;sp_csrf=[#SP_CSRF#]"><span class="glyphicon glyphicon-cloud-download" aria-hidden="true"></span> <#LANG_SP_DIAG_FORCE#></a>
+        <span class="text-muted" style="margin-left:10px; font-size:12px;"><#LANG_SP_DIAG_RUNPLAN_HINT#></span>
+        <div id="spAjaxStatus" class="sp-status" role="status" aria-live="polite"></div>
       </div>
     </div>
   [#endif#]
 
   <!-- ===================== SETTINGS ===================== -->
   [#if VIEW_MODE=="settings"#]
-  <form method="post" action="?">
+  <form method="post" action="[#SP_BASE_URL#]">
     <input type="hidden" name="action" value="save_settings">
+    <input type="hidden" name="sp_csrf" value="[#SP_CSRF#]">
 
     <!-- Core -->
     <div class="panel panel-default">
-      <div class="panel-heading"><strong><span class="glyphicon glyphicon-cog"></span> <#LANG_SP_GROUP_CORE#></strong></div>
+      <div class="panel-heading"><strong><span class="glyphicon glyphicon-cog" aria-hidden="true"></span> <#LANG_SP_GROUP_CORE#></strong></div>
       <div class="panel-body">
         <div class="row">
           <div class="col-md-3 form-group">
-            <label><#LANG_SP_TIMEZONE#></label>
-            <input class="form-control" name="timezone" value="[#CFG_TIMEZONE#]">
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_TIMEZONE#></span>
+            <label for="spTimezone"><#LANG_SP_TIMEZONE#></label>
+            <input class="form-control" id="spTimezone" name="timezone" value="[#CFG_TIMEZONE#]" placeholder="<#LANG_SP_EG#> Europe/Kyiv" required>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_TIMEZONE#></span>
           </div>
           <div class="col-md-2 form-group">
-            <label><#LANG_SP_GRID_STEP#></label>
-            <select class="form-control" name="grid_step_min">
+            <label for="spGridStep"><#LANG_SP_GRID_STEP#></label>
+            <select class="form-control" id="spGridStep" name="grid_step_min">
               <option value="15" [#if CFG_GRID_STEP_MIN=="15"#]selected[#endif#]>15</option>
               <option value="30" [#if CFG_GRID_STEP_MIN=="30"#]selected[#endif#]>30</option>
               <option value="60" [#if CFG_GRID_STEP_MIN=="60"#]selected[#endif#]>60</option>
             </select>
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_GRID_STEP#></span>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_GRID_STEP#></span>
           </div>
           <div class="col-md-3 form-group">
-            <label><#LANG_SP_MODE#></label>
-            <select class="form-control" name="planner_mode">
+            <label for="spMode"><#LANG_SP_MODE#></label>
+            <select class="form-control" id="spMode" name="planner_mode">
               <option value="reach_full" [#if CFG_MODE=="reach_full"#]selected[#endif#]>[#LBL_MODE_REACH_FULL#]</option>
               <option value="minimum_cost" [#if CFG_MODE=="minimum_cost"#]selected[#endif#]>[#LBL_MODE_MIN_COST#]</option>
             </select>
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_MODE#></span>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_MODE#></span>
           </div>
           <div class="col-md-2 form-group">
-            <label><#LANG_SP_SOC_STEP#></label>
-            <input class="form-control" name="soc_step_pct" value="[#CFG_SOC_STEP_PCT#]">
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_SOC_STEP#></span>
+            <label for="spSocStep"><#LANG_SP_SOC_STEP#></label>
+            <input class="form-control" id="spSocStep" name="soc_step_pct" type="number" min="1" max="100" step="1" value="[#CFG_SOC_STEP_PCT#]" required>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_SOC_STEP#></span>
           </div>
           <div class="col-md-2 form-group">
-            <label><#LANG_SP_ENSEMBLE#></label>
-            <select class="form-control" name="ensemble_method">
+            <label for="spEnsemble"><#LANG_SP_ENSEMBLE#></label>
+            <select class="form-control" id="spEnsemble" name="ensemble_method">
               <option value="median" [#if CFG_ENSEMBLE_METHOD=="median"#]selected[#endif#]>[#LBL_ENS_MEDIAN#]</option>
               <option value="mean" [#if CFG_ENSEMBLE_METHOD=="mean"#]selected[#endif#]>[#LBL_ENS_MEAN#]</option>
               <option value="weighted" [#if CFG_ENSEMBLE_METHOD=="weighted"#]selected[#endif#]>[#LBL_ENS_WEIGHTED#]</option>
               <option value="best" [#if CFG_ENSEMBLE_METHOD=="best"#]selected[#endif#]>[#LBL_ENS_BEST#]</option>
             </select>
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_ENSEMBLE#></span>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_ENSEMBLE#></span>
           </div>
           <div class="col-md-3 form-group">
-            <label><#LANG_SP_PV_SCALE#></label>
-            <input class="form-control" name="pv_scale" value="[#CFG_PV_SCALE#]" placeholder="1.0">
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_PV_SCALE#></span>
+            <label for="spPvScale"><#LANG_SP_PV_SCALE#></label>
+            <input class="form-control" id="spPvScale" name="pv_scale" type="number" min="0.1" max="2" step="0.01" value="[#CFG_PV_SCALE#]" placeholder="1.0" required>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_PV_SCALE#></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Forecast accuracy / calibration -->
+    <div class="panel panel-default">
+      <div class="panel-heading"><strong><span class="glyphicon glyphicon-signal" aria-hidden="true"></span> <#LANG_SP_ACCURACY#></strong></div>
+      <div class="panel-body">
+        <div class="row">
+          <div class="col-md-4 form-group">
+            <input type="hidden" name="pv_auto_calibrate" value="0">
+            <label for="spAutoCalibrate"><#LANG_SP_AUTO_CALIBRATE#></label>
+            <div class="checkbox">
+              <label><input type="checkbox" id="spAutoCalibrate" name="pv_auto_calibrate" value="1" [#if CFG_PV_AUTO_CALIBRATE="1"#]checked[#endif#]> <#LANG_SP_AUTO_CALIBRATE#></label>
+            </div>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_AUTO_CALIBRATE#></span>
+          </div>
+          <div class="col-md-3 form-group">
+            <label for="spCalibAlpha"><#LANG_SP_CALIB_ALPHA#></label>
+            <input class="form-control" id="spCalibAlpha" name="pv_calibration_alpha" type="number" min="0" max="1" step="0.05" value="[#CFG_PV_CALIBRATION_ALPHA#]">
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_CALIB_ALPHA#></span>
+          </div>
+          <div class="col-md-3 form-group">
+            <label for="spSolcastLimit"><#LANG_SP_SOLCAST_LIMIT#></label>
+            <input class="form-control" id="spSolcastLimit" name="solcast_daily_limit_units" type="number" min="0" max="1000" step="1" value="[#CFG_SOLCAST_DAILY_LIMIT_UNITS#]">
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_SOLCAST_LIMIT#></span>
+          </div>
+          <div class="col-md-2 form-group">
+            <label for="spSolcastReserved"><#LANG_SP_SOLCAST_RESERVED#></label>
+            <input class="form-control" id="spSolcastReserved" name="solcast_reserved_units" type="number" min="0" max="100" step="1" value="[#CFG_SOLCAST_RESERVED_UNITS#]">
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_SOLCAST_RESERVED#></span>
           </div>
         </div>
       </div>
@@ -396,28 +483,33 @@
 
     <!-- Tariff -->
     <div class="panel panel-default">
-      <div class="panel-heading"><strong><span class="glyphicon glyphicon-usd"></span> <#LANG_SP_GROUP_TARIFF#></strong></div>
+      <div class="panel-heading"><strong><span class="glyphicon glyphicon-usd" aria-hidden="true"></span> <#LANG_SP_GROUP_TARIFF#></strong></div>
       <div class="panel-body">
         <div class="row">
           <div class="col-md-3 form-group">
-            <label><#LANG_SP_CHEAP_START#></label>
-            <input class="form-control" type="time" name="cheap_start" value="[#CFG_CHEAP_START#]" placeholder="23:00">
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_CHEAP_START#></span>
+            <label for="spCheapStart"><#LANG_SP_CHEAP_START#></label>
+            <input class="form-control" id="spCheapStart" name="cheap_start" type="time" value="[#CFG_CHEAP_START#]" placeholder="23:00" required>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_CHEAP_START#></span>
           </div>
           <div class="col-md-3 form-group">
-            <label><#LANG_SP_CHEAP_END#></label>
-            <input class="form-control" type="time" name="cheap_end" value="[#CFG_CHEAP_END#]" placeholder="07:00">
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_CHEAP_END#></span>
+            <label for="spCheapEnd"><#LANG_SP_CHEAP_END#></label>
+            <input class="form-control" id="spCheapEnd" name="cheap_end" type="time" value="[#CFG_CHEAP_END#]" placeholder="07:00" required>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_CHEAP_END#></span>
           </div>
           <div class="col-md-3 form-group">
-            <label><#LANG_SP_CHEAP_PRICE#></label>
-            <input class="form-control" name="tariff_cheap_price" value="[#CFG_TARIFF_CHEAP_PRICE#]">
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_CHEAP_PRICE#></span>
+            <label for="spCheapPrice"><#LANG_SP_CHEAP_PRICE#></label>
+            <input class="form-control" id="spCheapPrice" name="tariff_cheap_price" type="number" min="0" max="100000" step="0.01" value="[#CFG_TARIFF_CHEAP_PRICE#]" required>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_CHEAP_PRICE#></span>
           </div>
           <div class="col-md-3 form-group">
-            <label><#LANG_SP_DAY_PRICE#></label>
-            <input class="form-control" name="tariff_day_price" value="[#CFG_TARIFF_DAY_PRICE#]">
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_DAY_PRICE#></span>
+            <label for="spDayPrice"><#LANG_SP_DAY_PRICE#></label>
+            <input class="form-control" id="spDayPrice" name="tariff_day_price" type="number" min="0" max="100000" step="0.01" value="[#CFG_TARIFF_DAY_PRICE#]" required>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_DAY_PRICE#></span>
+          </div>
+          <div class="col-md-3 form-group">
+            <label for="spCurtailPenalty"><#LANG_SP_CURTAIL_PENALTY#></label>
+            <input class="form-control" id="spCurtailPenalty" name="curtailment_penalty_per_kwh" type="number" min="0" max="100" step="0.01" value="[#CFG_CURTAILMENT_PENALTY_PER_KWH#]">
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_CURTAIL_PENALTY#></span>
           </div>
         </div>
       </div>
@@ -425,53 +517,53 @@
 
     <!-- Battery -->
     <div class="panel panel-default">
-      <div class="panel-heading"><strong><span class="glyphicon glyphicon-dashboard"></span> <#LANG_SP_GROUP_BATTERY#></strong></div>
+      <div class="panel-heading"><strong><span class="glyphicon glyphicon-dashboard" aria-hidden="true"></span> <#LANG_SP_GROUP_BATTERY#></strong></div>
       <div class="panel-body">
         <div class="row">
           <div class="col-md-2 form-group">
-            <label><#LANG_SP_BAT_COUNT#></label>
-            <input class="form-control" name="battery_count" value="[#CFG_BATTERY_COUNT#]">
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_BAT_COUNT#></span>
+            <label for="spBatCount"><#LANG_SP_BAT_COUNT#></label>
+            <input class="form-control" id="spBatCount" name="battery_count" type="number" min="1" max="64" step="1" value="[#CFG_BATTERY_COUNT#]" required>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_BAT_COUNT#></span>
           </div>
           <div class="col-md-2 form-group">
-            <label><#LANG_SP_BAT_CAP#></label>
-            <input class="form-control" name="battery_capacity_kwh" value="[#CFG_BATTERY_CAPACITY_KWH#]">
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_BAT_CAP#></span>
+            <label for="spBatCap"><#LANG_SP_BAT_CAP#></label>
+            <input class="form-control" id="spBatCap" name="battery_capacity_kwh" type="number" min="0.1" max="1000" step="0.1" value="[#CFG_BATTERY_CAPACITY_KWH#]" required>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_BAT_CAP#></span>
           </div>
           <div class="col-md-2 form-group">
-            <label><#LANG_SP_RESERVE#></label>
-            <input class="form-control" name="reserve_soc_pct" value="[#CFG_RESERVE_SOC_PCT#]">
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_RESERVE#></span>
+            <label for="spReserve"><#LANG_SP_RESERVE#></label>
+            <input class="form-control" id="spReserve" name="reserve_soc_pct" type="number" min="1" max="100" step="1" value="[#CFG_RESERVE_SOC_PCT#]" required>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_RESERVE#></span>
           </div>
           <div class="col-md-2 form-group">
-            <label><#LANG_SP_MIN_SOC#></label>
-            <input class="form-control" name="min_soc_pct" value="[#CFG_MIN_SOC_PCT#]">
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_MIN_SOC#></span>
+            <label for="spMinSoc"><#LANG_SP_MIN_SOC#></label>
+            <input class="form-control" id="spMinSoc" name="min_soc_pct" type="number" min="0" max="100" step="1" value="[#CFG_MIN_SOC_PCT#]" required>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_MIN_SOC#></span>
           </div>
           <div class="col-md-2 form-group">
-            <label><#LANG_SP_MAX_SOC#></label>
-            <input class="form-control" name="max_soc_pct" value="[#CFG_MAX_SOC_PCT#]">
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_MAX_SOC#></span>
+            <label for="spMaxSoc"><#LANG_SP_MAX_SOC#></label>
+            <input class="form-control" id="spMaxSoc" name="max_soc_pct" type="number" min="1" max="100" step="1" value="[#CFG_MAX_SOC_PCT#]" required>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_MAX_SOC#></span>
           </div>
           <div class="col-md-2 form-group">
-            <label><#LANG_SP_MAX_CH#></label>
-            <input class="form-control" name="max_charge_kw" value="[#CFG_MAX_CHARGE_KW#]">
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_MAX_CH#></span>
+            <label for="spMaxCh"><#LANG_SP_MAX_CH#></label>
+            <input class="form-control" id="spMaxCh" name="max_charge_kw" type="number" min="0" max="500" step="0.1" value="[#CFG_MAX_CHARGE_KW#]" required>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_MAX_CH#></span>
           </div>
           <div class="col-md-2 form-group">
-            <label><#LANG_SP_MAX_DIS#></label>
-            <input class="form-control" name="max_discharge_kw" value="[#CFG_MAX_DISCHARGE_KW#]">
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_MAX_DIS#></span>
+            <label for="spMaxDis"><#LANG_SP_MAX_DIS#></label>
+            <input class="form-control" id="spMaxDis" name="max_discharge_kw" type="number" min="0" max="500" step="0.1" value="[#CFG_MAX_DISCHARGE_KW#]" required>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_MAX_DIS#></span>
           </div>
           <div class="col-md-2 form-group">
-            <label><#LANG_SP_ETA_CH#></label>
-            <input class="form-control" name="eta_charge" value="[#CFG_ETA_CHARGE#]">
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_ETA_CH#></span>
+            <label for="spEtaCh"><#LANG_SP_ETA_CH#></label>
+            <input class="form-control" id="spEtaCh" name="eta_charge" type="number" min="0.5" max="1" step="0.01" value="[#CFG_ETA_CHARGE#]" required>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_ETA_CH#></span>
           </div>
           <div class="col-md-2 form-group">
-            <label><#LANG_SP_ETA_DIS#></label>
-            <input class="form-control" name="eta_discharge" value="[#CFG_ETA_DISCHARGE#]">
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_ETA_DIS#></span>
+            <label for="spEtaDis"><#LANG_SP_ETA_DIS#></label>
+            <input class="form-control" id="spEtaDis" name="eta_discharge" type="number" min="0.5" max="1" step="0.01" value="[#CFG_ETA_DISCHARGE#]" required>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_ETA_DIS#></span>
           </div>
         </div>
       </div>
@@ -479,58 +571,58 @@
 
     <!-- Site & providers (private) -->
     <div class="panel panel-default">
-      <div class="panel-heading"><strong><span class="glyphicon glyphicon-cloud"></span> <#LANG_SP_GROUP_SITE#></strong></div>
+      <div class="panel-heading"><strong><span class="glyphicon glyphicon-cloud" aria-hidden="true"></span> <#LANG_SP_GROUP_SITE#></strong></div>
       <div class="panel-body">
         <div class="row">
           <div class="col-md-3 form-group">
-            <label><#LANG_SP_LAT#></label>
-            <input class="form-control" name="latitude" value="[#CFG_LATITUDE#]" placeholder="***">
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_LAT#></span>
+            <label for="spLat"><#LANG_SP_LAT#></label>
+            <input class="form-control" id="spLat" name="latitude" type="number" min="-90" max="90" step="0.000001" value="[#CFG_LATITUDE#]" placeholder="***">
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_LAT#></span>
           </div>
           <div class="col-md-3 form-group">
-            <label><#LANG_SP_LON#></label>
-            <input class="form-control" name="longitude" value="[#CFG_LONGITUDE#]" placeholder="***">
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_LON#></span>
+            <label for="spLon"><#LANG_SP_LON#></label>
+            <input class="form-control" id="spLon" name="longitude" type="number" min="-180" max="180" step="0.000001" value="[#CFG_LONGITUDE#]" placeholder="***">
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_LON#></span>
           </div>
           <div class="col-md-3 form-group">
-            <label>Solcast API key</label>
-            <input class="form-control" type="password" name="solcast_api_key" value="[#CFG_SOLCAST_API_KEY#]" placeholder="********">
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_PRIVATE#></span>
+            <label for="spSolcastKey">Solcast API key</label>
+            <input class="form-control" id="spSolcastKey" type="password" name="solcast_api_key" value="[#CFG_SOLCAST_API_KEY#]" placeholder="********">
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_PRIVATE#></span>
           </div>
           <div class="col-md-3 form-group">
-            <label>Forecast.Solar API key</label>
-            <input class="form-control" type="password" name="forecast_solar_api_key" value="[#CFG_FORECAST_SOLAR_API_KEY#]" placeholder="(опц.)">
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_PRIVATE#></span>
+            <label for="spForecastSolarKey">Forecast.Solar API key</label>
+            <input class="form-control" id="spForecastSolarKey" type="password" name="forecast_solar_api_key" value="[#CFG_FORECAST_SOLAR_API_KEY#]" placeholder="<#LANG_SP_OPTIONAL#>">
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_PRIVATE#></span>
           </div>
         </div>
         <div class="row">
           <div class="col-md-8 form-group">
-            <label><#LANG_SP_SOLCAST_RES#></label>
+            <label for="spSolcastRes"><#LANG_SP_SOLCAST_RES#></label>
             <div class="input-group">
-              <input class="form-control" name="solcast_resource_ids" value="[#CFG_SOLCAST_RESOURCE_IDS#]" placeholder="6f0a-815b-79bc-01f7, ...">
+              <input class="form-control" id="spSolcastRes" name="solcast_resource_ids" value="[#CFG_SOLCAST_RESOURCE_IDS#]" placeholder="6f0a-815b-79bc-01f7, ...">
               <span class="input-group-btn">
-                <a class="btn btn-info" href="?action=fetch_solcast"><span class="glyphicon glyphicon-cloud-download"></span> <#LANG_SP_SOLCAST_FETCH#></a>
+                <button type="button" class="btn btn-info" onclick="document.getElementById('spFetchForm').submit()" aria-label="<#LANG_SP_SOLCAST_FETCH#>"><span class="glyphicon glyphicon-cloud-download" aria-hidden="true"></span> <#LANG_SP_SOLCAST_FETCH#></button>
               </span>
             </div>
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_SOLCAST_RES#></span>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_SOLCAST_RES#></span>
           </div>
         </div>
         <!-- PV arrays builder (no manual JSON) -->
         <div class="row">
           <div class="col-md-12 form-group">
-            <label><#LANG_SP_PV_ARRAYS#></label>
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_PV_ARRAYS#></span>
+            <label for="spPvJson"><#LANG_SP_PV_ARRAYS#></label>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_PV_ARRAYS#></span>
             <table class="table table-condensed" style="margin-bottom:6px;">
               <thead><tr>
                 <th><#LANG_SP_PV_NAME#></th>
                 <th><#LANG_SP_PV_KWP#></th>
                 <th><#LANG_SP_PV_TILT#></th>
                 <th><#LANG_SP_PV_DIR#></th>
-                <th></th>
+                <th><span class="sr-only"><#LANG_SP_REMOVE#></span></th>
               </tr></thead>
               <tbody id="spPvRows"></tbody>
             </table>
-            <button type="button" class="btn btn-default btn-sm" onclick="spAddPvRow()"><span class="glyphicon glyphicon-plus"></span> <#LANG_SP_PV_ADD#></button>
+            <button type="button" class="btn btn-default btn-sm" onclick="spAddPvRow()"><span class="glyphicon glyphicon-plus" aria-hidden="true"></span> <#LANG_SP_PV_ADD#></button>
             <!-- Pre-filled with the saved arrays (entity-encoded so quotes do not
                  break the attribute). JS (spPvSync) overwrites it on change; the
                  pre-fill guarantees saving without touching this tab never wipes
@@ -542,17 +634,17 @@
         <!-- Property map picker (no manual JSON) -->
         <div class="row">
           <div class="col-md-12 form-group">
-            <label><#LANG_SP_PROPERTY_MAP#></label>
-            <span class="help-block" style="font-size:11px;"><#LANG_SP_H_PROPERTY_MAP#></span>
+            <label for="spPmJson"><#LANG_SP_PROPERTY_MAP#></label>
+            <span class="help-block" style="font-size:12px;"><#LANG_SP_H_PROPERTY_MAP#></span>
             <div style="margin-bottom:8px;">
               [#if MIRROR_EXISTS="1"#]
                 <span class="label label-success"><#LANG_SP_MIRROR_READY#></span>
               [#else#]
                 <span class="label label-default"><#LANG_SP_MIRROR_MISSING#></span>
               [#endif#]
-              <a class="btn btn-info btn-sm" href="?action=create_objects"><span class="glyphicon glyphicon-wrench"></span> <#LANG_SP_CREATE_OBJECTS#></a>
-              <button type="button" class="btn btn-primary btn-sm" onclick="spAutoMap()"><span class="glyphicon glyphicon-flash"></span> <#LANG_SP_AUTO_MAP#></button>
-              <button type="button" class="btn btn-default btn-sm" onclick="spUseMirror()"><span class="glyphicon glyphicon-transfer"></span> <#LANG_SP_USE_MIRROR#></button>
+              <button type="button" class="btn btn-info btn-sm" onclick="document.getElementById('spObjectsForm').submit()" aria-label="<#LANG_SP_CREATE_OBJECTS#>"><span class="glyphicon glyphicon-wrench" aria-hidden="true"></span> <#LANG_SP_CREATE_OBJECTS#></button>
+              <button type="button" class="btn btn-primary btn-sm" onclick="spAutoMap()"><span class="glyphicon glyphicon-flash" aria-hidden="true"></span> <#LANG_SP_AUTO_MAP#></button>
+              <button type="button" class="btn btn-default btn-sm" onclick="spUseMirror()"><span class="glyphicon glyphicon-transfer" aria-hidden="true"></span> <#LANG_SP_USE_MIRROR#></button>
             </div>
             <div class="alert alert-info" style="font-size:12px; padding:8px 12px;">
               <#LANG_SP_PM_GUIDE#>
@@ -565,6 +657,7 @@
               </tr></thead>
               <tbody id="spPmRows"></tbody>
             </table>
+            <div id="spPmStatus" class="sp-status" role="status" aria-live="polite"></div>
             <!-- Pre-filled with the saved map (entity-encoded). JS (spPmSync)
                  overwrites it on change; the pre-fill prevents a save from
                  another tab wiping the map. -->
@@ -573,7 +666,15 @@
         </div>
         <div class="row">
           <div class="col-md-12">
-            <label style="display:block;"><#LANG_SP_GROUP_FLAGS#></label>
+            <span style="display:block; font-size:12px;"><#LANG_SP_GROUP_FLAGS#></span>
+            <!-- Hidden 0 sentinels: an unchecked checkbox is omitted by the
+                 browser, so the PHP side can distinguish "not on this form"
+                 from "explicitly unchecked" and preserve other tabs' flags. -->
+            <input type="hidden" name="open_meteo_enabled" value="0">
+            <input type="hidden" name="forecast_solar_enabled" value="0">
+            <input type="hidden" name="solcast_enabled" value="0">
+            <input type="hidden" name="allow_export" value="0">
+            <input type="hidden" name="profile_verified" value="0">
             <label class="checkbox-inline"><input type="checkbox" name="open_meteo_enabled" [#if CFG_OPEN_METEO_ENABLED="1"#]checked[#endif#]> Open-Meteo</label>
             <label class="checkbox-inline"><input type="checkbox" name="forecast_solar_enabled" [#if CFG_FORECAST_SOLAR_ENABLED="1"#]checked[#endif#]> Forecast.Solar</label>
             <label class="checkbox-inline"><input type="checkbox" name="solcast_enabled" [#if CFG_SOLCAST_ENABLED="1"#]checked[#endif#]> Solcast</label>
@@ -585,89 +686,190 @@
     </div>
 
     <div class="form-group">
-      <button type="submit" class="btn btn-success"><span class="glyphicon glyphicon-floppy-disk"></span> <#LANG_SP_SAVE#></button>
+      <button type="submit" class="btn btn-success"><span class="glyphicon glyphicon-floppy-disk" aria-hidden="true"></span> <#LANG_SP_SAVE#></button>
     </div>
+  </form>
+
+  <!-- Stand-alone POST forms for actions that must not be nested inside the
+       settings form. Both use SP_BASE_URL and carry the CSRF token. -->
+  <form id="spFetchForm" method="post" action="[#SP_BASE_URL#]" style="display:none;">
+    <input type="hidden" name="action" value="fetch_solcast">
+    <input type="hidden" name="sp_csrf" value="[#SP_CSRF#]">
+  </form>
+  <form id="spObjectsForm" method="post" action="[#SP_BASE_URL#]" style="display:none;">
+    <input type="hidden" name="action" value="create_objects">
+    <input type="hidden" name="sp_csrf" value="[#SP_CSRF#]">
   </form>
   [#endif#]
 
 </div>
 
+<!-- JSON payloads injected by the module. JSON_HEX_TAG on the PHP side makes
+     these safe to embed; JSON.parse() below fails gracefully if a token is
+     unavailable. They must appear BEFORE the script that reads them. -->
+<script type="application/json" id="spObjectsJson">[#OBJECTS_JSON#]</script>
+<script type="application/json" id="spPvJsonData">[#PV_ARRAYS_DATA_JSON#]</script>
+<script type="application/json" id="spPmJsonData">[#PROPERTY_MAP_DATA_JSON#]</script>
+<script type="application/json" id="spAccuracyJson">[#PV_ACCURACY_JSON#]</script>
+<script>var SP_CSRF_TOKEN = '[#SP_CSRF#]';</script>
+
+<style>
+/* Inline, dependency-free spinner and status styling. */
+.sp-spin { animation: sp-spin 1s linear infinite; }
+@keyframes sp-spin { to { transform: rotate(360deg); } }
+.sp-status { min-height: 20px; margin-top: 8px; font-size: 12px; }
+</style>
+
 <script>
-// Build a URL on top of the CURRENT page URL so the module routing params
-// (md=solarplanner, pd, inst, ...) are preserved. A bare "?action=.." would
-// replace the whole query string and drop md=, so MajorDoMo would not dispatch
-// to this module and the request would hit the generic panel instead.
+// MajorDoMo dispatches module pages by the panel marker in the query string.
+// Use the canonical form from the core templates instead of rebuilding the
+// current URL (URLSearchParams mangles the `?(panel:{...})` marker).
 function spUrl(extra) {
-  var params = new URLSearchParams(window.location.search);
-  Object.keys(extra || {}).forEach(function(k){ params.set(k, extra[k]); });
-  return window.location.pathname + '?' + params.toString();
+  var url = '?(panel:{action=solarplanner})&md=solarplanner';
+  Object.keys(extra || {}).forEach(function(k){
+    url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(extra[k]);
+  });
+  return url;
 }
+function spEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+
+// Show internal messages as text only (see the text/plain blocks above).
+function spShowMsg(rawId, boxId, textId){
+  var raw = document.getElementById(rawId), box = document.getElementById(boxId), txt = document.getElementById(textId);
+  if (!raw || !box || !txt) return;
+  var s = String(raw.textContent || '').replace(/^\s+|\s+$/g, '');
+  // An unresolved parser token must never be displayed as a message.
+  if (s && s.indexOf('[#') < 0 && s.indexOf('<#') < 0) { txt.textContent = s; box.style.display = 'block'; }
+}
+
+function spSetStatus(msg, cls, spin){
+  var el = document.getElementById('spAjaxStatus'); if (!el) return;
+  el.className = 'sp-status ' + (cls || '');
+  el.innerHTML = (spin ? '<span class="glyphicon glyphicon-refresh sp-spin" aria-hidden="true"></span> ' : '') + spEsc(msg);
+}
+function spPmSetStatus(msg, cls){
+  var el = document.getElementById('spPmStatus'); if (!el) return;
+  el.className = 'sp-status ' + (cls || '');
+  el.innerHTML = msg ? spEsc(msg) : '';
+}
+
 function spRunPlan() {
-  var url = spUrl({ action: 'run_plan', ajax: '1' });
+  var url = spUrl({ action: 'run_plan', ajax: '1', sp_csrf: SP_CSRF_TOKEN });
   var btns = document.querySelectorAll('button[onclick="spRunPlan()"]');
   btns.forEach(function(b){ b.disabled = true; });
+  spSetStatus("<#LANG_SP_CALCULATING#>", "text-primary", true);
   var x = new XMLHttpRequest();
   x.open('GET', url, true);
   x.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+  x.timeout = 30000;
   x.onload = function(){
     btns.forEach(function(b){ b.disabled = false; });
     var r = null;
     try { r = JSON.parse(x.responseText); } catch(e) {}
-    if (r && typeof r.message !== 'undefined') {
-      alert(r.message);
-      // reload so the Overview / Plan / Diagnostics tabs show the fresh result
-      setTimeout(function(){ window.location.reload(); }, 150);
-    } else {
-      alert('Не вдалося розрахувати план: сервер повернув несподівану відповідь. Перевірте вкладку «Діагностика».');
+    // An explicit failure must be shown and must NOT trigger a reload.
+    if (r && r.success === false) {
+      spSetStatus(r.error || r.message || "<#LANG_SP_RUN_PLAN_FAIL#>", "text-danger", false);
+      return;
     }
+    if (r && typeof r.message !== 'undefined') {
+      spSetStatus(r.message, "text-success", false);
+      setTimeout(function(){ window.location.reload(); }, 500);
+      return;
+    }
+    spSetStatus("<#LANG_SP_RUN_PLAN_FAIL#>", "text-danger", false);
+  };
+  x.ontimeout = function(){
+    btns.forEach(function(b){ b.disabled = false; });
+    spSetStatus("<#LANG_SP_TIMEOUT#>", "text-danger", false);
   };
   x.onerror = function(){
     btns.forEach(function(b){ b.disabled = false; });
-    alert('Помилка мережі під час запиту розрахунку плану.');
+    spSetStatus("<#LANG_SP_RUN_PLAN_NETWORK#>", "text-danger", false);
   };
   x.send();
 }
 
-// ---- data injected by the module ----
-var SP_OBJECTS = [#OBJECTS_JSON#] || [];
-var SP_PV_DATA = [#PV_ARRAYS_DATA_JSON#] || [];
-var SP_PM_DATA = [#PROPERTY_MAP_DATA_JSON#] || {};
+// ---- data injected by the module (JSON script blocks keep quotes/apostrophes
+//      out of JS string literals and let us fail gracefully). ----
+function spReadJson(id, fallback){
+  var el = document.getElementById(id);
+  if (!el) return fallback;
+  try { var v = JSON.parse(el.textContent); return v == null ? fallback : v; }
+  catch(e) { return fallback; }
+}
+var SP_OBJECTS    = spReadJson('spObjectsJson', []);
+var SP_PV_DATA    = spReadJson('spPvJsonData', []);
+var SP_PM_DATA    = spReadJson('spPmJsonData', {});
 var SP_PM_FIELDS = [
-  ['battery_soc', 'SOC батареї (%)'],
-  ['soc_updated_utc', 'Час оновлення SOC'],
-  ['pv_power_kw', 'Потужність PV (кВт)'],
-  ['load_power_kw', 'Навантаження (кВт)'],
-  ['grid_power_kw', 'Мережа (кВт)'],
-  ['battery_power_kw', 'Потужність батареї (кВт)'],
-  ['grid_connected', 'Мережа підключена'],
-  ['inverter_alarm', 'Тривога інвертора'],
-  ['bms_charge_limit_a', 'BMS ліміт заряду (А)'],
-  ['bms_discharge_limit_a', 'BMS ліміт розряду (А)'],
-  ['grid_charge_enabled', 'Дозвіл заряду з мережі'],
-  ['tou_schedule_json', 'Поточний TOU (JSON)']
+  ['battery_soc', "<#LANG_SP_PMF_BATTERY_SOC#>"],
+  ['soc_updated_utc', "<#LANG_SP_PMF_SOC_UPDATED#>"],
+  ['pv_power_kw', "<#LANG_SP_PMF_PV_POWER#>"],
+  ['load_power_kw', "<#LANG_SP_PMF_LOAD_POWER#>"],
+  ['grid_power_kw', "<#LANG_SP_PMF_GRID_POWER#>"],
+  ['battery_power_kw', "<#LANG_SP_PMF_BATTERY_POWER#>"],
+  ['grid_connected', "<#LANG_SP_PMF_GRID_CONNECTED#>"],
+  ['inverter_alarm', "<#LANG_SP_PMF_INVERTER_ALARM#>"],
+  ['bms_charge_limit_a', "<#LANG_SP_PMF_BMS_CH_LIMIT#>"],
+  ['bms_discharge_limit_a', "<#LANG_SP_PMF_BMS_DIS_LIMIT#>"],
+  ['grid_charge_enabled', "<#LANG_SP_PMF_GRID_CHARGE_ENABLED#>"],
+  ['tou_schedule_json', "<#LANG_SP_PMF_TOU_JSON#>"]
 ];
 // Direction choices map to module azimuth degrees (0=N,90=E,180=S,270=W).
 var SP_DIRS = [
-  ['180','Південь (S)'], ['135','Південний схід (SE)'], ['225','Південний захід (SW)'],
-  ['90','Схід (E)'], ['270','Захід (W)'], ['0','Північ (N)'],
-  ['45','Північний схід (NE)'], ['315','Північний захід (NW)']
+  ['180',"<#LANG_SP_DIR_S#> (S)"], ['135',"<#LANG_SP_DIR_SE#> (SE)"], ['225',"<#LANG_SP_DIR_SW#> (SW)"],
+  ['90',"<#LANG_SP_DIR_E#> (E)"], ['270',"<#LANG_SP_DIR_W#> (W)"], ['0',"<#LANG_SP_DIR_N#> (N)"],
+  ['45',"<#LANG_SP_DIR_NE#> (NE)"], ['315',"<#LANG_SP_DIR_NW#> (NW)"]
 ];
 
-function spEsc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+// ===== Forecast-vs-actual chart (inline SVG, no external libraries) =====
+function spRenderAccuracy(){
+  var box = document.getElementById('spAccChart'); if (!box) return;
+  var data = spReadJson('spAccuracyJson', []);
+  if (!Array.isArray(data) || !data.length) {
+    box.innerHTML = '<p class="text-muted" style="margin:0; font-size:12px;"><#LANG_SP_NO_DATA#></p>';
+    return;
+  }
+  var max = 0;
+  data.forEach(function(d){ max = Math.max(max, parseFloat(d.forecast)||0, parseFloat(d.actual)||0); });
+  if (max <= 0) max = 1;
+  var W = 560, H = 170, L = 36, R = 8, T = 8, B = 34;
+  var pw = W - L - R, ph = H - T - B;
+  var n = data.length, slot = pw / Math.max(n, 1), bw = Math.max(2, Math.min(12, slot/3));
+  var svg = '<svg viewBox="0 0 '+W+' '+H+'" width="100%" height="'+H+'" role="img" aria-label="<#LANG_SP_FORECAST_VS_ACTUAL#>">';
+  [0, 0.5, 1].forEach(function(f){
+    var y = T + ph*(1-f);
+    svg += '<line x1="'+L+'" y1="'+y+'" x2="'+(W-R)+'" y2="'+y+'" stroke="#eee"></line>';
+    svg += '<text x="'+(L-4)+'" y="'+(y+4)+'" text-anchor="end" font-size="11" fill="#999">'+(max*f).toFixed(1)+'</text>';
+  });
+  data.forEach(function(d, i){
+    var f = Math.max(0, parseFloat(d.forecast)||0), a = Math.max(0, parseFloat(d.actual)||0);
+    var cx = L + slot*i + slot/2;
+    var yf = T + ph*(1 - f/max), ya = T + ph*(1 - a/max);
+    var tip = spEsc(d.date) + ' — <#LANG_SP_FORECAST#>: ' + f.toFixed(2) + ', <#LANG_SP_ACTUAL#>: ' + a.toFixed(2);
+    svg += '<rect x="'+(cx-bw-1)+'" y="'+yf+'" width="'+bw+'" height="'+(T+ph-yf)+'" fill="#5bc0de"><title>'+tip+'</title></rect>';
+    svg += '<rect x="'+(cx+1)+'" y="'+ya+'" width="'+bw+'" height="'+(T+ph-ya)+'" fill="#5cb85c"><title>'+tip+'</title></rect>';
+    if (i === 0 || i === Math.floor(n/2) || i === n-1) {
+      svg += '<text x="'+cx+'" y="'+(H-12)+'" text-anchor="middle" font-size="11" fill="#666">'+spEsc(String(d.date).slice(5))+'</text>';
+    }
+  });
+  svg += '<line x1="'+L+'" y1="'+(T+ph)+'" x2="'+(W-R)+'" y2="'+(T+ph)+'" stroke="#ccc"></line>';
+  svg += '</svg>';
+  box.innerHTML = svg;
+}
 
 // ===== PV arrays builder =====
 function spPvRowHtml(a){
   a = a || {};
   var az = (a.azimuth_module_deg!=null)? String(Math.round(a.azimuth_module_deg)) : '180';
-  var opts = SP_DIRS.map(function(d){ return '<option value="'+d[0]+'"'+(d[0]===az?' selected':'')+'>'+d[1]+'</option>'; }).join('');
+  var opts = SP_DIRS.map(function(d){ return '<option value="'+d[0]+'"'+(d[0]===az?' selected':'')+'>'+spEsc(d[1])+'</option>'; }).join('');
   // if azimuth not one of presets, add a custom option
-  if (!SP_DIRS.some(function(d){return d[0]===az;})) { opts = '<option value="'+az+'" selected>'+az+'\u00b0</option>'+opts; }
+  if (!SP_DIRS.some(function(d){return d[0]===az;})) { opts = '<option value="'+spEsc(az)+'" selected>'+spEsc(az)+'\u00b0</option>'+opts; }
   return '<tr>'+
-    '<td><input class="form-control input-sm sp-pv-name" value="'+spEsc(a.array_id||'')+'" placeholder="дах-південь"></td>'+
-    '<td><input class="form-control input-sm sp-pv-kwp" type="number" step="0.01" value="'+spEsc(a.kwp!=null?a.kwp:'')+'" placeholder="3.22"></td>'+
-    '<td><input class="form-control input-sm sp-pv-tilt" type="number" step="1" value="'+spEsc(a.tilt_deg!=null?a.tilt_deg:'')+'" placeholder="40"></td>'+
-    '<td><select class="form-control input-sm sp-pv-dir">'+opts+'</select></td>'+
-    '<td><button type="button" class="btn btn-danger btn-xs" onclick="this.closest(\'tr\').remove();spPvSync();"><span class="glyphicon glyphicon-trash"></span></button></td>'+
+    '<td><input class="form-control input-sm sp-pv-name" aria-label="<#LANG_SP_PV_NAME#>" value="'+spEsc(a.array_id||'')+'" placeholder="<#LANG_SP_PV_EXAMPLE_NAME#>"></td>'+
+    '<td><input class="form-control input-sm sp-pv-kwp" aria-label="<#LANG_SP_PV_KWP#>" type="number" min="0" step="0.01" value="'+spEsc(a.kwp!=null?a.kwp:'')+'" placeholder="3.22"></td>'+
+    '<td><input class="form-control input-sm sp-pv-tilt" aria-label="<#LANG_SP_PV_TILT#>" type="number" min="0" max="90" step="1" value="'+spEsc(a.tilt_deg!=null?a.tilt_deg:'')+'" placeholder="40"></td>'+
+    '<td><select class="form-control input-sm sp-pv-dir" aria-label="<#LANG_SP_PV_DIR#>">'+opts+'</select></td>'+
+    '<td><button type="button" class="btn btn-danger btn-xs" aria-label="<#LANG_SP_REMOVE#>" onclick="this.closest(\'tr\').remove();spPvSync();"><span class="glyphicon glyphicon-trash" aria-hidden="true"></span></button></td>'+
     '</tr>';
 }
 function spAddPvRow(a){
@@ -705,9 +907,9 @@ function spPmRender(){
     var objName = '', propName = '';
     if (mapped.indexOf('.')>=0){ var p = mapped.split('.'); objName = p[0]; propName = p.slice(1).join('.'); }
     var tr = document.createElement('tr');
-    tr.innerHTML = '<td>'+spEsc(label)+' <code style="font-size:10px;">'+key+'</code></td>'+
-      '<td><select class="form-control input-sm sp-pm-obj" data-key="'+key+'">'+spObjOptions(objName)+'</select></td>'+
-      '<td><select class="form-control input-sm sp-pm-prop" data-key="'+key+'"><option value="'+spEsc(propName)+'" selected>'+(propName?spEsc(propName):'—')+'</option></select></td>';
+    tr.innerHTML = '<td>'+spEsc(label)+' <code style="font-size:12px;">'+spEsc(key)+'</code></td>'+
+      '<td><select class="form-control input-sm sp-pm-obj" aria-label="'+spEsc(label)+'" data-key="'+key+'">'+spObjOptions(objName)+'</select></td>'+
+      '<td><select class="form-control input-sm sp-pm-prop" aria-label="'+spEsc(label)+'" data-key="'+key+'"><option value="'+spEsc(propName)+'" selected>'+(propName?spEsc(propName):'—')+'</option></select></td>';
     tb.appendChild(tr);
     var objSel = tr.querySelector('.sp-pm-obj');
     var propSel = tr.querySelector('.sp-pm-prop');
@@ -721,13 +923,21 @@ function spLoadProps(objName, propSel, selected){
   var x = new XMLHttpRequest();
   x.open('GET', spUrl({ action: 'list_properties', ajax: '1', object: objName }), true);
   x.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+  x.timeout = 15000;
   x.onload = function(){
-    var props = []; try { props = JSON.parse(x.responseText)||[]; } catch(e){}
+    var data = null; try { data = JSON.parse(x.responseText); } catch(e){}
+    if (!Array.isArray(data)) {
+      spPmSetStatus((data && data.error) ? data.error : "<#LANG_SP_PROP_LOAD_ERROR#>", "text-danger");
+      return;
+    }
     var o = '<option value="">—</option>';
-    props.forEach(function(p){ o += '<option value="'+spEsc(p)+'"'+(p===selected?' selected':'')+'>'+spEsc(p)+'</option>'; });
-    if (selected && props.indexOf(selected)<0){ o += '<option value="'+spEsc(selected)+'" selected>'+spEsc(selected)+'</option>'; }
+    data.forEach(function(p){ o += '<option value="'+spEsc(p)+'"'+(p===selected?' selected':'')+'>'+spEsc(p)+'</option>'; });
+    if (selected && data.indexOf(selected)<0){ o += '<option value="'+spEsc(selected)+'" selected>'+spEsc(selected)+'</option>'; }
     propSel.innerHTML = o; spPmSync();
+    spPmSetStatus('', '');
   };
+  x.ontimeout = function(){ spPmSetStatus("<#LANG_SP_PROP_LOAD_TIMEOUT#>", "text-danger"); };
+  x.onerror = function(){ spPmSetStatus("<#LANG_SP_PROP_LOAD_NETWORK#>", "text-danger"); };
   x.send();
 }
 function spPmSync(){
@@ -744,6 +954,7 @@ function spUseMirror(){
     battery_power_kw:'SolarPlanner.BatteryPower'};
   if (SP_OBJECTS.indexOf('SolarPlanner')<0) SP_OBJECTS.push('SolarPlanner');
   spPmRender();
+  spPmSetStatus('', '');
 }
 // Ask the server to auto-detect object.property for each indicator by scanning
 // existing objects/properties by name keywords. Fills only confident matches;
@@ -751,12 +962,18 @@ function spUseMirror(){
 function spAutoMap(){
   var btns = document.querySelectorAll('button[onclick="spAutoMap()"]');
   btns.forEach(function(b){ b.disabled = true; });
+  spPmSetStatus("<#LANG_SP_CALCULATING#>", "text-primary");
   var x = new XMLHttpRequest();
   x.open('GET', spUrl({ action: 'auto_map_properties', ajax: '1' }), true);
   x.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+  x.timeout = 30000;
   x.onload = function(){
     btns.forEach(function(b){ b.disabled = false; });
     var r = null; try { r = JSON.parse(x.responseText); } catch(e) {}
+    if (r && r.success === false) {
+      spPmSetStatus(r.error || r.message || "<#LANG_SP_AUTO_MAP_FAIL#>", "text-danger");
+      return;
+    }
     if (r && r.map) {
       var n = 0;
       Object.keys(r.map).forEach(function(k){ if (r.map[k]) n++; });
@@ -767,16 +984,20 @@ function spAutoMap(){
         if (obj && SP_OBJECTS.indexOf(obj) < 0) SP_OBJECTS.push(obj);
       });
       spPmRender();
-      alert((r.message || '') + ' (' + n + ')');
+      spPmSetStatus((r.message || '') + ' (' + n + ')', "text-success");
     } else {
-      alert('Авто-визначення не вдалося.');
+      spPmSetStatus("<#LANG_SP_AUTO_MAP_FAIL#>", "text-danger");
     }
   };
-  x.onerror = function(){ btns.forEach(function(b){ b.disabled = false; }); alert('Помилка мережі.'); };
+  x.ontimeout = function(){ btns.forEach(function(b){ b.disabled = false; }); spPmSetStatus("<#LANG_SP_TIMEOUT#>", "text-danger"); };
+  x.onerror = function(){ btns.forEach(function(b){ b.disabled = false; }); spPmSetStatus("<#LANG_SP_NETWORK_ERROR#>", "text-danger"); };
   x.send();
 }
 
 document.addEventListener('DOMContentLoaded', function(){
+  spShowMsg('spMsgSuccess', 'spSuccessBox', 'spSuccessText');
+  spShowMsg('spMsgError', 'spErrorBox', 'spErrorText');
+  spRenderAccuracy();
   if (document.getElementById('spPvRows')){
     if (SP_PV_DATA.length) SP_PV_DATA.forEach(function(a){ spAddPvRow(a); }); else spAddPvRow();
   }

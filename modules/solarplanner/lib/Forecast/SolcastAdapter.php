@@ -60,12 +60,16 @@ class SolcastAdapter implements ForecastAdapter
         $run->energyBasis = 'interval';
         $run->validFromUtc = (int)$fromUtc;
         $run->validToUtc = (int)$toUtc;
+        // Solcast forecasts describe the configured rooftop resources, not our
+        // local coordinates. Hashing the resource ids lets the cache reject a
+        // run produced with a different resource set.
         $run->locationConfigHash = '';
-        $run->pvConfigHash = '';
+        $run->pvConfigHash = md5(json_encode($this->resourceIds));
 
         $byInterval = array();
         $rawConcat = '';
         $okAny = false;
+        $okResources = 0;
 
         foreach ($this->resourceIds as $rid) {
             $url = 'https://api.solcast.com.au/rooftop_sites/' . rawurlencode($rid)
@@ -84,6 +88,7 @@ class SolcastAdapter implements ForecastAdapter
             }
             $this->quota->recordSuccess($this->accountId, 1.0);
             $okAny = true;
+            $okResources++;
             $rawConcat .= $res['body'];
             $data = json_decode($res['body'], true);
             if (!isset($data['forecasts'])) {
@@ -103,13 +108,19 @@ class SolcastAdapter implements ForecastAdapter
                 $lowKwh = isset($f['pv_estimate10']) ? (float)$f['pv_estimate10'] * $hours : null;
                 $highKwh = isset($f['pv_estimate90']) ? (float)$f['pv_estimate90'] * $hours : null;
                 if (!isset($byInterval[$start])) {
-                    $byInterval[$start] = array('end' => $end, 'kwh' => 0.0, 'low' => 0.0, 'high' => 0.0, 'has_q' => false);
+                    $byInterval[$start] = array('end' => $end, 'kwh' => 0.0, 'low' => 0.0,
+                        'high' => 0.0, 'has_q' => false, 'partial_q' => false);
                 }
                 $byInterval[$start]['kwh'] += $kwh;
-                if ($lowKwh !== null) {
+                // Only treat the band as a quantile pair when BOTH P10 and P90
+                // are present. Substituting the median for a missing P90 used
+                // to silently narrow the reported uncertainty.
+                if ($lowKwh !== null && $highKwh !== null) {
                     $byInterval[$start]['low'] += $lowKwh;
-                    $byInterval[$start]['high'] += ($highKwh !== null ? $highKwh : $kwh);
+                    $byInterval[$start]['high'] += $highKwh;
                     $byInterval[$start]['has_q'] = true;
+                } elseif ($lowKwh !== null || $highKwh !== null) {
+                    $byInterval[$start]['partial_q'] = true;
                 }
             }
         }
@@ -118,20 +129,31 @@ class SolcastAdapter implements ForecastAdapter
             return array('run' => null, 'status' => 'unusable', 'detail' => 'all resource requests failed');
         }
 
+        // A failed resource must not silently become zero generation. Scale the
+        // aggregate by the missing share and flag the run as partial.
+        $expected = count($this->resourceIds);
+        $coverageFactor = ($okResources > 0 && $okResources < $expected)
+            ? min(2.0, $expected / $okResources) : 1.0;
+        if ($coverageFactor > 1.0) {
+            $run->qualityFlags[] = 'partial_resources:' . ($expected - $okResources) . '/' . $expected;
+        }
         ksort($byInterval);
         foreach ($byInterval as $start => $row) {
+            $kwh = $row['kwh'] * $coverageFactor;
             $extra = array(
-                'pv_mean_power_kw' => ($row['end'] - $start) > 0 ? $row['kwh'] / (($row['end'] - $start) / 3600.0) : 0.0,
+                'pv_mean_power_kw' => ($row['end'] - $start) > 0 ? $kwh / (($row['end'] - $start) / 3600.0) : 0.0,
                 'array_id' => 'aggregate',
             );
             if ($row['has_q']) {
                 // Solcast documents these as percentile estimates; keep their
                 // definition, do not relabel as calibrated P10/P90 of our site.
-                $extra['quantile_low_kwh'] = $row['low'];
-                $extra['quantile_median_kwh'] = $row['kwh'];
-                $extra['quantile_high_kwh'] = $row['high'];
+                $extra['quantile_low_kwh'] = $row['low'] * $coverageFactor;
+                $extra['quantile_median_kwh'] = $kwh;
+                $extra['quantile_high_kwh'] = $row['high'] * $coverageFactor;
+            } elseif ($row['partial_q']) {
+                $extra['quantile_incomplete'] = 1;
             }
-            $run->addInterval($start, $row['end'], $row['kwh'], $extra);
+            $run->addInterval($start, $row['end'], $kwh, $extra);
         }
 
         $run->rawResponseHash = hash('sha256', $rawConcat);
@@ -141,7 +163,7 @@ class SolcastAdapter implements ForecastAdapter
         }
         $run->qualityFlags[] = 'quantiles:solcast_percentile_not_site_calibrated';
 
-        $status = $run->coversHorizon($fromUtc, $toUtc) ? 'fresh' : 'partial';
+        $status = ($okResources >= $expected && $run->coversHorizon($fromUtc, $toUtc)) ? 'fresh' : 'partial';
         return array('run' => $run, 'status' => $status, 'detail' => 'ok');
     }
 

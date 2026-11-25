@@ -3,16 +3,17 @@
   Drop the markup into a MajorDoMo scene and bind the {#...#} tokens to the
   SolarPlanner.* object properties. No real values are included here.
 
-  Properties used (see docs/configuration.md and the SolarPlanner namespace):
+  Only properties actually published by publishPlanProperties() are used:
     SolarPlanner.ControlMode, SolarPlanner.Status,
-    SolarPlanner.TargetSocAt07, SolarPlanner.ForecastPvTomorrowKwh,
+    SolarPlanner.TargetSocAt07, SolarPlanner.TargetSocIsSuggestion,
+    SolarPlanner.CurrentSoc, SolarPlanner.ForecastPvTomorrowKwh,
+    SolarPlanner.ForecastPvTomorrowRawKwh,
     SolarPlanner.ForecastPvTomorrowLowKwh, SolarPlanner.ForecastPvTomorrowHighKwh,
-    SolarPlanner.ForecastLoadTomorrowKwh, SolarPlanner.PlannedNightImportKwh,
-    SolarPlanner.ExpectedDayImportKwh, SolarPlanner.ExpectedFullAt,
-    SolarPlanner.ExpectedSocAt23, SolarPlanner.ExpectedCurtailmentKwh,
-    SolarPlanner.ReserveSoc, SolarPlanner.ForecastQuality,
-    SolarPlanner.ActiveProviders, SolarPlanner.PlanExplanation,
-    SolarPlanner.TouReadbackStatus, SolarPlanner.CurrentSoc
+    SolarPlanner.ForecastLoadTomorrowKwh, SolarPlanner.ForecastQuality,
+    SolarPlanner.PlannedNightImportKwh, SolarPlanner.ExpectedDayImportKwh,
+    SolarPlanner.ExpectedCurtailmentKwh, SolarPlanner.ExpectedFullAt,
+    SolarPlanner.ExpectedSocAtHorizonEnd, SolarPlanner.CalibrationScale,
+    SolarPlanner.PlanExplanation, SolarPlanner.LastPlanAt
 -->
 <div class="sp-scene" style="font-family:sans-serif;max-width:760px;">
   <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -22,21 +23,22 @@
 
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
     <div class="card"><b>TargetSocAt07</b><div class="big">{#SolarPlanner.TargetSocAt07#}%</div>
-      <small>зараз: {#SolarPlanner.CurrentSoc#}% · резерв: {#SolarPlanner.ReserveSoc#}%</small></div>
+      <small>зараз: {#SolarPlanner.CurrentSoc#}% · suggestion: {#SolarPlanner.TargetSocIsSuggestion#}</small></div>
     <div class="card"><b>PV завтра</b><div class="big">{#SolarPlanner.ForecastPvTomorrowKwh#} кВт·год</div>
-      <small>{#SolarPlanner.ForecastPvTomorrowLowKwh#} … {#SolarPlanner.ForecastPvTomorrowHighKwh#} (сценарії)</small></div>
+      <small>модель без корекції: {#SolarPlanner.ForecastPvTomorrowRawKwh#} ·
+        сценарії: {#SolarPlanner.ForecastPvTomorrowLowKwh#} … {#SolarPlanner.ForecastPvTomorrowHighKwh#}</small></div>
     <div class="card"><b>Навантаження завтра</b><div class="big">{#SolarPlanner.ForecastLoadTomorrowKwh#} кВт·год</div>
-      <small>довіра: {#SolarPlanner.ForecastQuality#}</small></div>
+      <small>якість: {#SolarPlanner.ForecastQuality#}</small></div>
     <div class="card"><b>Нічний імпорт</b><div class="big">{#SolarPlanner.PlannedNightImportKwh#} кВт·год</div></div>
-    <div class="card"><b>Денний імпорт</b><div class="big">{#SolarPlanner.ExpectedDayImportKwh#} кВт·год</div></div>
+    <div class="card"><b>Денний імпорт</b><div class="big">{#SolarPlanner.ExpectedDayImportKwh#} кВт·год</div>
+      <small>можливий надлишок: {#SolarPlanner.ExpectedCurtailmentKwh#} кВт·год</small></div>
     <div class="card"><b>Повний заряд ~</b><div class="big">{#SolarPlanner.ExpectedFullAt#}</div>
-      <small>SOC о 23: {#SolarPlanner.ExpectedSocAt23#}%</small></div>
+      <small>SOC на кінці горизонту: {#SolarPlanner.ExpectedSocAtHorizonEnd#}%</small></div>
   </div>
 
   <div class="card" style="margin-top:10px;">
     <b>Пояснення</b>
     <p>{#SolarPlanner.PlanExplanation#}</p>
-    <small>Провайдери: {#SolarPlanner.ActiveProviders#} · Readback: {#SolarPlanner.TouReadbackStatus#}
-      · можливий надлишок: {#SolarPlanner.ExpectedCurtailmentKwh#} кВт·год</small>
+    <small>Масштаб калібрування: {#SolarPlanner.CalibrationScale#} · оновлено: {#SolarPlanner.LastPlanAt#}</small>
   </div>
 </div>

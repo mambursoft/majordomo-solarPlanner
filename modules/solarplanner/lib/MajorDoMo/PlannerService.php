@@ -22,6 +22,7 @@ use SolarPlanner\Planning\NightChargePlanner;
 use SolarPlanner\Planning\TouCompiler;
 use SolarPlanner\Planning\ExplanationBuilder;
 use SolarPlanner\Forecast\EnsembleBuilder;
+use SolarPlanner\Analytics\PvCalibrationService;
 
 class PlannerService
 {
@@ -72,7 +73,21 @@ class PlannerService
             isset($this->cfg['load_min_samples']) ? $this->cfg['load_min_samples'] : 3,
             isset($this->cfg['manual_hourly_kw']) ? $this->cfg['manual_hourly_kw'] : array()
         );
-        $loadRes = $lf->forecast($intervals, $loadHistory);
+        // Controllable loads are subtracted when they are scheduled separately,
+        // otherwise they would be double counted in the optimizer. A 24-value
+        // hourly kW profile is converted into per-interval kWh.
+        $controllable = array();
+        if (!empty($this->cfg['controllable_hourly_kw']) && is_array($this->cfg['controllable_hourly_kw'])) {
+            $profile = array_values($this->cfg['controllable_hourly_kw']);
+            if (count($profile) === 24) {
+                $tz = new \DateTimeZone($this->grid->getTimezone());
+                foreach ($intervals as $iv) {
+                    $hour = (int)(new \DateTime('@' . (int)$iv['start_utc']))->setTimezone($tz)->format('G');
+                    $controllable[(int)$iv['start_utc']] = max(0.0, (float)$profile[$hour]) * (float)$iv['hours'];
+                }
+            }
+        }
+        $loadRes = $lf->forecast($intervals, $loadHistory, $controllable);
 
         // 3) Merge PV + load + tariff flags into simulation intervals.
         // Provider forecasts arrive on their own grid (Open-Meteo is hourly),
@@ -103,26 +118,52 @@ class PlannerService
             );
         }
 
-        // 4) Night charge planner -> TargetSocAt07.
+        // 4) Night charge planner -> TargetSocAt07. Risk scenarios now use the
+        // ensemble's own low/high spread instead of arbitrary fixed factors.
+        $factors = PvCalibrationService::bandFactors($ens['intervals']);
+        // "Full" must come from TOMORROW's daylight PV, not from a grid charge
+        // during the cheap window or from the day after tomorrow.
+        $tomorrow = $this->localDayWindow($horizonStartUtc, 1);
+        $pvFrom = null;
+        $pvTo = null;
+        foreach ($ens['intervals'] as $s => $iv) {
+            $mid = (int)(((int)$s + (int)$iv['end_utc']) / 2);
+            if ($mid < $tomorrow['start'] || $mid >= $tomorrow['end']
+                || (float)$iv['pv_kwh'] <= 0.01) {
+                continue;
+            }
+            $pvFrom = $pvFrom === null ? (int)$s : min($pvFrom, (int)$s);
+            $pvTo = $pvTo === null ? (int)$iv['end_utc'] : max($pvTo, (int)$iv['end_utc']);
+        }
         $planner = new NightChargePlanner($this->batt, array(
             'mode' => isset($this->cfg['mode']) ? $this->cfg['mode'] : 'reach_full',
             'soc_step_pct' => isset($this->cfg['soc_step_pct']) ? $this->cfg['soc_step_pct'] : 5.0,
             'allow_export' => !empty($this->cfg['allow_export']),
             'night_house_from_grid' => isset($this->cfg['night_house_from_grid']) ? (bool)$this->cfg['night_house_from_grid'] : true,
             'reserve_is_hard' => true,
-            'full_window_start_utc' => isset($ctx['full_window_start_utc']) ? $ctx['full_window_start_utc'] : null,
-            'full_window_end_utc' => isset($ctx['full_window_end_utc']) ? $ctx['full_window_end_utc'] : null,
+            'full_window_start_utc' => isset($ctx['full_window_start_utc']) ? $ctx['full_window_start_utc'] : $pvFrom,
+            'full_window_end_utc' => isset($ctx['full_window_end_utc']) ? $ctx['full_window_end_utc'] : $pvTo,
+            'curtailment_penalty_per_kwh' => isset($this->cfg['curtailment_penalty_per_kwh'])
+                ? (float)$this->cfg['curtailment_penalty_per_kwh'] : 0.05,
+            'risk_low_pv_factor' => $factors['low_pv_factor'],
+            'risk_high_pv_factor' => $factors['high_pv_factor'],
+            'risk_high_load_factor' => $loadRes['quality'] === 'manual_assumption' ? 1.3 : 1.15,
         ));
         $plan = $planner->plan($startSocPct, $simIntervals);
 
-        // 5) Explanation.
+        $plan['ensemble_method'] = $ens['method'];
+        $plan['load_quality'] = $loadRes['quality'];
+        // Report PV data quality too, not only the load forecast's quality.
+        $plan['forecast_quality'] = isset($ctx['forecast_quality']) ? $ctx['forecast_quality']
+            : ($loadRes['quality'] . '; pv=' . $ens['method']);
+
+        // 5) Explanation — uses the same quality value shown in the UI.
         $plan['explanation_obj'] = ExplanationBuilder::build($plan, array(
-            'forecast_quality' => isset($ctx['forecast_quality']) ? $ctx['forecast_quality'] : $loadRes['quality'],
+            'forecast_quality' => $plan['forecast_quality'],
             'unavailable_providers' => isset($ctx['unavailable_providers']) ? $ctx['unavailable_providers'] : array(),
             'tou_changed' => !empty($ctx['tou_changed']),
         ));
-        $plan['ensemble_method'] = $ens['method'];
-        $plan['load_quality'] = $loadRes['quality'];
+        $plan['risk_factors'] = $factors;
         $plan['sim_intervals'] = $simIntervals;
 
         // Headline "tomorrow" figures must describe a SINGLE local day, not the
@@ -131,7 +172,11 @@ class PlannerService
         // horizon is still used by the simulation/night-charge planner above;
         // only the UI-facing totals are restricted to tomorrow's local day.
         $tw = $this->localDayWindow($horizonStartUtc, 1); // tomorrow [start,end)
-        $plan['pv_tomorrow_kwh'] = round($this->sumPvInWindow($ens['intervals'], $tw['start'], $tw['end']) * $pvScale, 3);
+        // Keep the UNSCALED ensemble value: calibration must compare measured
+        // energy with the raw model output, otherwise applying a scale and then
+        // learning from the already-scaled number converges to sqrt(bias).
+        $plan['pv_tomorrow_raw_kwh'] = $this->sumPvInWindow($ens['intervals'], $tw['start'], $tw['end']);
+        $plan['pv_tomorrow_kwh'] = round($plan['pv_tomorrow_raw_kwh'] * $pvScale, 3);
         $plan['pv_tomorrow_low_kwh'] = round($this->sumBandInWindow($ens['band'], 'low_kwh', $tw['start'], $tw['end']) * $pvScale, 3);
         $plan['pv_tomorrow_high_kwh'] = round($this->sumBandInWindow($ens['band'], 'high_kwh', $tw['start'], $tw['end']) * $pvScale, 3);
         $plan['load_tomorrow_kwh'] = $this->sumLoadInWindow($simIntervals, $tw['start'], $tw['end']);
@@ -166,6 +211,12 @@ class PlannerService
             $plan['pv_tomorrow_kwh_per_kwp'] = null;
             $plan['pv_forecast_implausible'] = 0;
         }
+
+        // A measured bias above ~0.3 kWh/day with enough samples is a much
+        // tighter signal than the gross >6.5 kWh/kWp sanity ceiling above.
+        $cal = isset($ctx['calibration']) ? $ctx['calibration'] : array();
+        $plan['pv_forecast_suspect'] = (!empty($cal['applied'])
+            && isset($cal['bias']) && $cal['bias'] !== null && (float)$cal['bias'] > 0.3) ? 1 : 0;
 
         return $plan;
     }

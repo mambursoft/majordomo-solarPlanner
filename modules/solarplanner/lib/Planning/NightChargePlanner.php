@@ -50,6 +50,7 @@ class NightChargePlanner
             'risk_low_pv_factor' => 0.7,     // low_pv scenario
             'risk_high_load_factor' => 1.2,  // high_load scenario
             'risk_high_pv_factor' => 1.3,    // high_pv (headroom check)
+            'curtailment_penalty_per_kwh' => 0.05,
         ), $cfg);
     }
 
@@ -61,6 +62,10 @@ class NightChargePlanner
      */
     public function plan($startSocPct, array $intervals)
     {
+        // Derive the "reach full" window from daylight PV intervals when the
+        // caller did not supply one. Without this, an overnight grid charge to
+        // 100% counted as "full reached from PV" and dominated the sort key.
+        $pvWindow = self::pvWindow($intervals);
         $candidates = $this->candidateTargets();
         $results = array();
 
@@ -79,7 +84,7 @@ class NightChargePlanner
             $highPv = $this->runScenario($startSocPct, $intervals, $policyBase, $this->cfg['risk_high_pv_factor'], 1.0);
 
             $feasible = $this->isFeasible($base, $lowPv, $highLoad);
-            $fullReached = $this->fullReachedInWindow($base);
+            $fullReached = $this->fullReachedInWindow($base, $pvWindow);
 
             $results[] = array(
                 'target_soc' => $targetSoc,
@@ -124,6 +129,7 @@ class NightChargePlanner
             $row['load_kwh'] = max(0.0, (float)$iv['load_kwh'] * $loadFactor);
             $scaled[] = $row;
         }
+        $policy['curtailment_penalty_per_kwh'] = $this->cfg['curtailment_penalty_per_kwh'];
         $sim = new EnergySimulator($this->batt, $policy);
         $res = $sim->simulate($startSoc, $scaled);
 
@@ -156,17 +162,36 @@ class NightChargePlanner
         return true;
     }
 
-    private function fullReachedInWindow($res)
+    private function fullReachedInWindow($res, array $pvWindow)
     {
-        $ws = $this->cfg['full_window_start_utc'];
-        $we = $this->cfg['full_window_end_utc'];
         if ($res['full_reached_at_utc'] === null) {
             return false;
         }
+        $ws = $this->cfg['full_window_start_utc'] !== null
+            ? $this->cfg['full_window_start_utc'] : $pvWindow[0];
+        $we = $this->cfg['full_window_end_utc'] !== null
+            ? $this->cfg['full_window_end_utc'] : $pvWindow[1];
         if ($ws === null || $we === null) {
-            return true;
+            return false; // no daylight -> cannot claim "full from PV"
         }
         return $res['full_reached_at_utc'] >= $ws && $res['full_reached_at_utc'] <= $we;
+    }
+
+    /** [start,end) of intervals with actual PV outside the cheap window. */
+    private static function pvWindow(array $intervals)
+    {
+        $start = null;
+        $end = null;
+        foreach ($intervals as $iv) {
+            if (!empty($iv['is_cheap']) || (float)$iv['pv_kwh'] <= 0.01) {
+                continue;
+            }
+            $s = (int)$iv['start_utc'];
+            $e = (int)$iv['end_utc'];
+            $start = $start === null ? $s : min($start, $s);
+            $end = $end === null ? $e : max($end, $e);
+        }
+        return array($start, $end);
     }
 
     private function selectBest(array $results, $startSoc)
@@ -211,7 +236,8 @@ class NightChargePlanner
             'expected_day_import_kwh' => round($best['day_import_kwh'], 3),
             'expected_curtailment_kwh' => round($best['curtailment_kwh'], 3),
             'expected_full_at_utc' => $best['base']['full_reached_at_utc'],
-            'expected_soc_at_23' => round($best['base']['end_soc_pct'], 2),
+            // The simulation covers the full ~44h horizon, not 23:00.
+            'expected_soc_at_horizon_end' => round($best['base']['end_soc_pct'], 2),
             'reserve_soc' => $this->batt->reserveSocPct,
             'full_reached' => $best['full_reached'] ? 1 : 0,
             'cost' => round($best['cost'], 4),

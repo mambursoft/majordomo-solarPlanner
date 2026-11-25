@@ -56,6 +56,9 @@ class QuotaManager
             $this->state[$accountId]['day'] = gmdate('Y-m-d');
             $this->state[$accountId]['http_requests'] = 0;
             $this->state[$accountId]['quota_units'] = 0.0;
+            // A fresh quota day must not inherit an old failure streak (the
+            // breaker itself still expires on its own timer if still open).
+            $this->state[$accountId]['consecutive_failures'] = 0;
         }
         return $this->state[$accountId];
     }

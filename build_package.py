@@ -43,7 +43,8 @@ PACKAGE_FILES = [
 
 EXCLUDE_DIRS = {".git", ".github", ".idea", ".vscode", "__pycache__",
                 ".pytest_cache", ".user_uploaded", "fixtures/real"}
-EXCLUDE_SUFFIX = (".pyc", ".tar.gz", ".tgz", ".zip", ".log", ".tmp")
+EXCLUDE_SUFFIX = (".pyc", ".tar.gz", ".tgz", ".zip", ".log", ".tmp",
+                  ".private.json", ".local.json")
 # Never ship private configuration.
 EXCLUDE_NAMES = {"config.local.json", "property-map.local.json", "secrets.json", ".env"}
 
@@ -135,7 +136,7 @@ def check_php_syntax():
 def should_exclude(rel_path):
     parts = Path(rel_path).parts
     for p in parts:
-        if p in {".git", ".github", ".idea", ".vscode", "__pycache__", ".pytest_cache", ".user_uploaded"}:
+        if p in EXCLUDE_DIRS:
             return True
     if "fixtures" in parts and "real" in parts:
         return True

@@ -11,6 +11,15 @@
  *    two independent confirmations,
  *  - provider spread may be a heuristic scenario band, NOT calibrated P10/P90.
  *
+ * IMPORTANT (fixed in 1.2.0): providers deliver energy over DIFFERENT interval
+ * lengths — Open-Meteo/Forecast.Solar are hourly, Solcast is 30-minute. Taking
+ * a median of raw kWh at a shared start timestamp mixes a 1-hour energy with a
+ * 30-minute energy and then spreads the result over the wrong duration. This
+ * class therefore normalises every provider to MEAN POWER (kW) on one common
+ * time grid first, combines powers, and only then converts back to interval
+ * energy. Total energy is conserved and the mixed-duration inflation (~1.45x)
+ * is eliminated.
+ *
  * PHP 7.3 compatible.
  *
  * @package solarplanner
@@ -36,18 +45,15 @@ class EnsembleBuilder
     }
 
     /**
-     * Build a merged interval series.
+     * Build a merged interval series on a single, duration-safe grid.
      *
      * @param array $runs list of ['run'=>ForecastRun,'mae'=>float|null,'obs'=>int,'weather_model'=>string]
      * @param string $method 'median' | 'mean' | 'weighted' | 'best'
-     * @return array ['method'=>string,'intervals'=>array,'weights'=>array,'band'=>array]
-     *   intervals keyed by start_utc: ['end_utc','pv_kwh','low_kwh','high_kwh']
+     * @return array ['method'=>string,'intervals'=>array,'weights'=>array,'band'=>array,'step_sec'=>int]
+     *   intervals keyed by start_utc: ['end_utc','pv_kwh','pv_kw','low_kwh','high_kwh']
      */
     public function build(array $runs, $method = 'median')
     {
-        // Deduplicate providers sharing the same underlying weather model: keep
-        // only the lowest-MAE one of each weather_model group for weighting, but
-        // still show all in the band.
         $usable = array();
         foreach ($runs as $r) {
             if (empty($r['run']) || empty($r['run']->intervals)) {
@@ -56,38 +62,53 @@ class EnsembleBuilder
             $usable[] = $r;
         }
         if (empty($usable)) {
-            return array('method' => 'none', 'intervals' => array(), 'weights' => array(), 'band' => array());
+            return array('method' => 'none', 'intervals' => array(), 'weights' => array(),
+                'band' => array(), 'step_sec' => 0);
         }
 
-        // Collect every interval start across runs.
-        $grid = array();
+        // Common target step = the finest interval actually present. Hourly-only
+        // feeds stay hourly; adding a 30-minute feed refines the grid to 30 min.
+        $minDur = PHP_INT_MAX;
+        $minStart = PHP_INT_MAX;
+        $maxEnd = 0;
         foreach ($usable as $r) {
             foreach ($r['run']->intervals as $iv) {
-                if ($iv['is_missing']) {
-                    continue;
+                $s = (int)$iv['interval_start_utc'];
+                $e = (int)$iv['interval_end_utc'];
+                $minStart = min($minStart, $s);
+                $maxEnd = max($maxEnd, $e);
+                if (!$iv['is_missing'] && $e > $s) {
+                    $minDur = min($minDur, $e - $s);
                 }
-                $grid[$iv['interval_start_utc']] = $iv['interval_end_utc'];
             }
         }
-        ksort($grid);
+        if ($minDur === PHP_INT_MAX || $maxEnd <= $minStart) {
+            return array('method' => 'none', 'intervals' => array(), 'weights' => array(),
+                'band' => array(), 'step_sec' => 0);
+        }
+        $step = max(300, min(3600, $minDur)); // 5 min .. 60 min
+        // Align the grid to the epoch so :00/:30 feeds line up.
+        $alignedStart = (int)(floor($minStart / $step) * $step);
+        $stepHours = $step / 3600.0;
 
         $weights = $this->computeWeights($usable, $method);
         $actualMethod = $weights === null ? 'median' : $method;
 
         $intervals = array();
         $band = array();
-        foreach ($grid as $start => $end) {
-            $vals = array();
+        for ($start = $alignedStart; $start < $maxEnd; $start += $step) {
+            $end = $start + $step;
+            $vals = array();      // mean power in kW per provider
             $weighted = 0.0;
             $wsum = 0.0;
             foreach ($usable as $i => $r) {
-                $v = $this->valueAt($r['run'], $start);
-                if ($v === null) {
-                    continue;
+                $kw = $this->meanPowerInSlot($r['run'], $start, $end);
+                if ($kw === null) {
+                    continue; // no usable coverage in this slot
                 }
-                $vals[] = $v;
+                $vals[] = $kw;
                 if ($weights !== null && isset($weights[$i])) {
-                    $weighted += $v * $weights[$i];
+                    $weighted += $kw * $weights[$i];
                     $wsum += $weights[$i];
                 }
             }
@@ -95,28 +116,36 @@ class EnsembleBuilder
                 continue;
             }
             sort($vals);
-            $low = $vals[0];
-            $high = $vals[count($vals) - 1];
+            $lowKw = $vals[0];
+            $highKw = $vals[count($vals) - 1];
             switch ($actualMethod) {
                 case 'mean':
-                    $central = array_sum($vals) / count($vals);
+                    $centralKw = array_sum($vals) / count($vals);
                     break;
                 case 'weighted':
-                    $central = $wsum > 0 ? $weighted / $wsum : $this->median($vals);
+                    $centralKw = $wsum > 0 ? $weighted / $wsum : $this->median($vals);
                     break;
                 case 'best':
-                    $central = $this->valueAt($usable[$this->bestIndex($usable)]['run'], $start);
-                    if ($central === null) {
-                        $central = $this->median($vals);
+                    $centralKw = $this->meanPowerInSlot($usable[$this->bestIndex($usable)]['run'], $start, $end);
+                    if ($centralKw === null) {
+                        $centralKw = $this->median($vals);
                     }
                     break;
                 case 'median':
                 default:
-                    $central = $this->median($vals);
+                    $centralKw = $this->median($vals);
                     break;
             }
-            $intervals[$start] = array('end_utc' => $end, 'pv_kwh' => $central, 'low_kwh' => $low, 'high_kwh' => $high);
-            $band[$start] = array('low_kwh' => $low, 'high_kwh' => $high);
+            $centralKwh = $centralKw * $stepHours;
+            $intervals[$start] = array(
+                'end_utc' => $end,
+                'pv_kwh' => $centralKwh,
+                'pv_kw' => $centralKw,
+                'low_kwh' => $lowKw * $stepHours,
+                'high_kwh' => $highKw * $stepHours,
+            );
+            // Band uses the SAME slot placement rule as the central value.
+            $band[$start] = array('low_kwh' => $lowKw * $stepHours, 'high_kwh' => $highKw * $stepHours);
         }
 
         return array(
@@ -124,7 +153,49 @@ class EnsembleBuilder
             'intervals' => $intervals,
             'weights' => $weights === null ? array() : $weights,
             'band' => $band,
+            'step_sec' => $step,
         );
+    }
+
+    /**
+     * Mean power (kW) contributed by one provider over [start,end).
+     * Each source interval is treated as uniformly spread over its own
+     * duration; only the overlapping part is counted. A missing source
+     * interval overlapping the slot makes this provider unusable there.
+     *
+     * @return float|null null = no usable coverage
+     */
+    private function meanPowerInSlot(ForecastRun $run, $start, $end)
+    {
+        $slotHours = ($end - $start) / 3600.0;
+        if ($slotHours <= 0) {
+            return null;
+        }
+        $energy = 0.0;
+        $covered = 0.0;
+        foreach ($run->intervals as $iv) {
+            $s = (int)$iv['interval_start_utc'];
+            $e = (int)$iv['interval_end_utc'];
+            $lo = $start > $s ? $start : $s;
+            $hi = $end < $e ? $end : $e;
+            $ov = $hi - $lo;
+            if ($ov <= 0) {
+                continue;
+            }
+            if ($iv['is_missing'] || $iv['pv_energy_kwh'] === null) {
+                return null; // never invent an energy for a gap
+            }
+            $dur = $e - $s;
+            if ($dur <= 0) {
+                continue;
+            }
+            $energy += (float)$iv['pv_energy_kwh'] * ($ov / $dur);
+            $covered += $ov;
+        }
+        if ($covered <= 0) {
+            return null;
+        }
+        return $energy / $slotHours;
     }
 
     private function computeWeights(array $usable, $method)
@@ -151,10 +222,41 @@ class EnsembleBuilder
         foreach ($raw as $i => $w) {
             $weights[$i] = $w / $total;
         }
-        // Cap max weight, then renormalise.
-        $capped = array();
-        foreach ($weights as $i => $w) {
-            $capped[$i] = min($this->maxWeight, $w);
+        // Enforce the per-provider cap by redistributing the excess only over
+        // providers still below the cap. A plain min()+renormalise pushes the
+        // capped weights back ABOVE the cap and violates the advertised rule.
+        $capped = $weights;
+        $n = count($capped);
+        $max = (float)$this->maxWeight;
+        for ($pass = 0; $pass <= $n; $pass++) {
+            $excess = 0.0;
+            $freeSum = 0.0;
+            foreach ($capped as $w) {
+                if ($w > $max) {
+                    $excess += $w - $max;
+                } elseif ($w < $max - 1e-12) {
+                    $freeSum += $w;
+                }
+            }
+            if ($excess <= 1e-12) {
+                break;
+            }
+            if ($freeSum <= 1e-12 || $max * $n < 1.0 - 1e-12) {
+                // Impossible to satisfy the cap with this many providers: use
+                // an even split, which is the least-biased approximation.
+                $even = 1.0 / $n;
+                foreach ($capped as $i => $w) {
+                    $capped[$i] = $even;
+                }
+                break;
+            }
+            foreach ($capped as $i => $w) {
+                if ($w > $max) {
+                    $capped[$i] = $max;
+                } elseif ($w < $max - 1e-12) {
+                    $capped[$i] = $w + $excess * ($w / $freeSum);
+                }
+            }
         }
         $sum = array_sum($capped);
         foreach ($capped as $i => $w) {
@@ -174,16 +276,6 @@ class EnsembleBuilder
             }
         }
         return $best;
-    }
-
-    private function valueAt(ForecastRun $run, $start)
-    {
-        foreach ($run->intervals as $iv) {
-            if ($iv['interval_start_utc'] == $start && !$iv['is_missing']) {
-                return (float)$iv['pv_energy_kwh'];
-            }
-        }
-        return null;
     }
 
     private function median(array $vals)

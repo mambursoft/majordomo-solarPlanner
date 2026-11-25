@@ -40,10 +40,11 @@ class SolarWindows
      *   cheap_start_hour, cheap_end_hour (local ints),
      *   critical_refine_lead_min (minutes before cheap end; default 20)
      * @param float|null $lat latitude for the fallback estimate
+     * @param float|null $lon longitude for the fallback solar-noon estimate
      * @return array sunrise_utc, sunset_utc, night_start_utc, night_end_utc,
      *               critical_refine_utc, sun_source ('properties'|'fallback')
      */
-    public function resolve($nowUtc, array $cfg = array(), $lat = 50.0)
+    public function resolve($nowUtc, array $cfg = array(), $lat = 50.0, $lon = null)
     {
         $nowUtc = (int)$nowUtc;
         $grid = new TimeGrid($this->tz, 30);
@@ -53,7 +54,7 @@ class SolarWindows
         $sunset = $this->readSunProp('SunSetTime', $nowUtc);
         $source = 'properties';
         if ($sunrise === null || $sunset === null || $sunset <= $sunrise) {
-            $est = $this->estimateSun($nowUtc, $lat);
+            $est = $this->estimateSun($nowUtc, $lat, $lon);
             $sunrise = $est['sunrise'];
             $sunset = $est['sunset'];
             $source = 'fallback';
@@ -172,7 +173,7 @@ class SolarWindows
      * Coarse sunrise/sunset estimate (NOAA-free approximation) for the fallback.
      * Good enough to drive a fetch schedule; not used for energy math.
      */
-    private function estimateSun($nowUtc, $lat)
+    private function estimateSun($nowUtc, $lat, $lon = null)
     {
         $tz = new \DateTimeZone($this->tz);
         $local = (new \DateTime('@' . (int)$nowUtc))->setTimezone($tz);
@@ -186,7 +187,15 @@ class SolarWindows
         $cosH = max(-1.0, min(1.0, $cosH));
         $H = rad2deg(acos($cosH)); // half-day length in degrees
         $dayHours = 2.0 * $H / 15.0;
-        $noonHour = 12.0; // local solar noon approx (ignores eq. of time/longitude)
+        // Local solar noon depends on longitude relative to the timezone's
+        // central meridian. The previous hardcoded 12:00 shifted the fallback
+        // sunrise/sunset (and therefore the fetch schedule) at any site that
+        // is not near its timezone meridian. Equation of time is ignored.
+        $noonHour = 12.0;
+        if ($lon !== null && is_numeric($lon)) {
+            $offsetHours = $local->getOffset() / 3600.0;
+            $noonHour = 12.0 + $offsetHours - ((float)$lon / 15.0);
+        }
         $sunriseHour = $noonHour - $dayHours / 2.0;
         $sunsetHour = $noonHour + $dayHours / 2.0;
 

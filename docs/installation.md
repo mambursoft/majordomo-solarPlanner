@@ -82,6 +82,23 @@ microSD and keep the 24/7 smart-home responsive:
   it does not add any public, unauthenticated endpoint and never performs a
   dangerous apply over a plain GET URL.
 
+## Upgrading from 1.1.x / 1.2.0 to 1.2.1
+
+`dbInstall()` is invoked from `install()`. On an existing installation, extract
+the new archive over the old one and then **open the module once in the MajorDoMo
+admin UI and re-save the Settings tab** (or reinstall/activate the module) so the
+schema migration runs. The migration is additive and preserves history.
+
+New in 1.2.1:
+- `solarplanner_planning_runs.PV_TOMORROW_RAW_KWH` — unscaled model output used
+  by calibration (older rows fall back to `PV_TOMORROW_KWH`).
+- New columns in `solarplanner_calibration` (`MAPE`, `SCALE`, `FORECAST_KWH`,
+  `ACTUAL_KWH`, `DATE_LOCAL`) and a new `solarplanner_quota_state` table.
+
+After upgrading, verify the installed version in `modinfo.json` shows **1.2.1**.
+Automatic calibration needs at least three distinct verified local days; until
+then the overview shows the measured MAE/bias but leaves `PV_SCALE` unchanged.
+
 ## 4. Configure
 
 Open the module **Settings** tab and fill the parameters. Coordinates and API

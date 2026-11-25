@@ -64,6 +64,8 @@ class ForecastRun
             'quantile_low_kwh' => isset($extra['quantile_low_kwh']) ? (float)$extra['quantile_low_kwh'] : null,
             'quantile_median_kwh' => isset($extra['quantile_median_kwh']) ? (float)$extra['quantile_median_kwh'] : null,
             'quantile_high_kwh' => isset($extra['quantile_high_kwh']) ? (float)$extra['quantile_high_kwh'] : null,
+            'quantile_incomplete' => !empty($extra['quantile_incomplete']) ? 1 : 0,
+            'temp_fallback' => !empty($extra['temp_fallback']) ? 1 : 0,
         );
         $this->intervals[] = $row;
     }

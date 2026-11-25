@@ -3,6 +3,118 @@
 All notable changes to this project are documented here. The format is based on
 Keep a Changelog; this project uses semantic versioning.
 
+## [1.2.1] - 2026-11-20
+
+### Fixed (independent audit follow-up)
+- **Calibration converged to `sqrt(bias)`**: the forecast read back for
+  comparison was already multiplied by `PV_SCALE`. The plan now stores
+  `PV_TOMORROW_RAW_KWH` (unscaled), and the manual factor is divided out of the
+  learned auto-scale — the loop now converges to the real correction.
+- **`N_SAMPLES` was never persisted** (key name mismatch), so `weighted`/`best`
+  always fell back to `median`; provider MAE rows were never written either.
+  Both are now saved, with one row per provider/local-day instead of ~96
+  duplicates per day (`saveCalibration` upserts).
+- **Degenerate ensemble band** (single provider) no longer claims a 5% margin:
+  scenario factors fall back to the conservative 0.7 / 1.3.
+- **Per-provider weight cap** is now genuinely enforced after renormalisation.
+- **Partial sub-request failures** in Open-Meteo / Solcast / Forecast.Solar no
+  longer look like `fresh` runs with silently zeroed generation: capacity is
+  compensated, a quality flag is recorded and status becomes `partial`.
+- **Forecast.Solar quota** pre-check now reserves N units for N array requests;
+  the reserved Solcast units are actually unlocked by the critical pre-07:00
+  refinement flag.
+- **Solcast cache** now hashes the resource-id list, so changing resources
+  invalidates the cached run.
+- **Daily quota rollover** resets the failure streak; temperature-fallback
+  flags are per-interval and reflect the temperature actually used.
+- **CSRF** now covers `run_plan`, `run_diagnostics` and forced diagnostics.
+- **Saving another tab** no longer disables providers or clears
+  `PROFILE_VERIFIED`; hidden 0 sentinels make checkbox intent explicit, and
+  auto-calibration can actually be switched off.
+- **Tab navigation inside the module** now uses MajorDoMo's canonical panel
+  marker (`?(panel:{action=solarplanner})&md=solarplanner&...`). Rebuilding the
+  base URL from `REQUEST_URI` dropped that marker and sent the user to the main
+  dashboard; the same canonical form is now used by AJAX calls too.
+- **Default tab** is no longer overwritten by an empty request value.
+- **Telemetry properties** are HTML-escaped before rendering (stored XSS).
+- Validation limits in HTML and PHP now agree; SUCCESS/ERROR no longer appear
+  together; English dictionary typo `yesterday''s` fixed.
+- **"Reach full"** window is now limited to tomorrow's daylight PV;
+  `curtailment_penalty_per_kwh` is a real config setting; export no longer
+  triggers a false balance warning; `expected_soc_at_23` renamed to
+  `expected_soc_at_horizon_end`; the explanation uses the same forecast quality
+  value shown in the UI.
+
+### Added
+- Regression tests: one-local-day PV sum over a 44 h horizon, weight cap,
+  degenerate band, manual-scale division in calibration.
+- New published properties for scenes (`ForecastPvTomorrowRawKwh`,
+  `ForecastQuality`, `CalibrationScale`, `ExpectedSocAtHorizonEnd`, …); the
+  example scene now references only properties the module really publishes.
+- Upgrade notes in `docs/installation.md`.
+
+## [1.2.0] - 2026-11-20
+
+### Fixed — forecast accuracy (root cause of the remaining forecast-vs-actual gap)
+- **EnsembleBuilder mixed 1-hour and 30-minute ENERGIES at the same timestamp.**
+  Open-Meteo/Forecast.Solar deliver hourly kWh, Solcast delivers half-hourly kWh.
+  A per-interval median mixed them and stamped the result with Solcast's 30-minute
+  end time, so ~1 hour of energy was squeezed into 30 minutes and the `:30` slot
+  was added again. A synthetic reproduction showed a **1.45x inflation**
+  (6.10 -> 8.84 kWh/day). The ensemble now normalises every provider to mean
+  power (kW) on one duration-safe grid, then converts back to kWh. Energy is
+  conserved and the median stays inside the provider range. Regression tests added.
+- **The ensemble's low/high band used a different day-placement rule** (start
+  vs midpoint) from the central value. Both now use the same slot grid.
+- **Forecast.Solar stored kWh in a `pv_mean_power_kw` field** (correct only for
+  1-hour slots); now divided by duration.
+- **Solcast silently substituted the median for a missing P90**, narrowing the
+  band. A quantile pair is now kept only when both P10 and P90 exist.
+- **Open-Meteo applied the first array's tilt/azimuth to every array.** Each
+  distinct orientation now gets its own GTI request. A missing temperature is
+  flagged instead of being silently invented (configurable fallback).
+- **Fallback sunrise/sunset ignored longitude**, shifting the fetch schedule;
+  local solar noon is now derived from longitude and the timezone offset.
+- **"Reach full" could be satisfied by an overnight grid charge**, because
+  `full_reached` was checked anywhere in the horizon and was the primary sort
+  key. The window is now derived from daylight PV intervals in non-cheap slots.
+- **Curtailment was free in the cost function** and only the last tie-break;
+  it now carries a configurable penalty. A soft `balance_mismatch` advisory no
+  longer vetoes every candidate (moved to `invariant_warnings`).
+- **Controllable loads were never subtracted** from the load forecast even
+  though the API existed; an optional 24-value hourly kW profile is now applied.
+
+### Added — closed feedback loop and analytics
+- Measured PV (`PV_POWER_KW`) is now **read back**, integrated per local day and
+  compared with the previously published forecast. `AccuracyMetrics` is finally
+  used in production; MAE / bias / RMSE / MAPE are persisted to
+  `solarplanner_calibration` and shown in the Overview.
+- A conservative, smoothed `PV_AUTO_CALIBRATE` scale (default ON, needs >=3
+  verified days, clamped to 0.35..1.60) corrects systematic provider optimism.
+  Samples taken while the battery was full or the inverter was clipping are
+  flagged in telemetry and excluded from calibration.
+- Per-provider MAE/observation counts now feed `EnsembleBuilder`, so the
+  previously unreachable `weighted` and `best` ensemble methods actually work.
+- Scenario factors now come from the ensemble band instead of fixed 0.7/1.3.
+- `QuotaManager` is restored from storage and configured from settings; quota
+  state persists in `solarplanner_quota_state`. Cached runs are rejected when
+  they no longer cover the current horizon or were made with another
+  coordinates/PV-array configuration.
+- A tighter warning (`pv_forecast_suspect`) fires on a measured positive bias
+  > 0.3 kWh/day; the old gross `> 6.5 kWh/kWp` sanity flag is retained.
+
+### Changed — UI/UX
+- All links/forms keep MajorDoMo routing params; every state-changing form is
+  POST with a CSRF token and `armed` mode requires confirmation.
+- Overview explains the PV window, shows horizon/day-after/today-remaining
+  context, accuracy metrics, a dependency-free forecast-vs-actual chart,
+  localized status badges and stale-data warnings.
+- Run-plan AJAX has a timeout, spinner and proper failure handling; the
+  property picker reports errors.
+- Both language sets now have identical key coverage; hardcoded Ukrainian
+  strings were replaced by localization tokens; labels/ARIA/numeric validation
+  improved; the `usual` view is now a small read-only widget.
+
 ## [1.1.3] - 2026-11-03
 
 ### Fixed

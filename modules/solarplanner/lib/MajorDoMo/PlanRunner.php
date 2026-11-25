@@ -21,6 +21,7 @@ namespace SolarPlanner\MajorDoMo;
 
 use SolarPlanner\Common\TimeGrid;
 use SolarPlanner\Simulation\BatteryModel;
+use SolarPlanner\Analytics\PvCalibrationService;
 
 class PlanRunner
 {
@@ -59,6 +60,23 @@ class PlanRunner
         $diag = new DiagnosticsService($cfg, $cache, $propGetter);
         $collected = $diag->collect($from, $to, $store, $force);
         $providerRuns = $collected['runs'];
+
+        // --- Closed feedback loop: compare yesterday's published forecast with
+        // the PV energy actually measured, and derive a conservative correction.
+        $calibration = self::calibrate($cfg, $store, $tz, $from);
+        if ($store) {
+            foreach ($providerRuns as &$runRow) {
+                $pid = $runRow['run']->providerId;
+                if (method_exists($store, 'loadCalibration')) {
+                    $stats = PvCalibrationService::providerStats($store->loadCalibration($pid, 'tomorrow', 30));
+                    if (isset($stats[$pid])) {
+                        $runRow['mae'] = $stats[$pid]['mae'];
+                        $runRow['obs'] = $stats[$pid]['obs'];
+                    }
+                }
+            }
+            unset($runRow);
+        }
 
         $unavailable = array();
         foreach ($collected['providers'] as $code => $p) {
@@ -108,11 +126,18 @@ class PlanRunner
         }
         $diagnostics['load_history_samples'] = count($history);
 
-        // 4) Build the plan.
-        $svc = new PlannerService($batt, $grid, self::svcCfg($cfg));
+        // 4) Build the plan. Manual PV_SCALE and the measured-data auto
+        // correction are multiplied (both are legitimate, independent factors).
+        $svcCfg = self::svcCfg($cfg);
+        $manualScale = isset($svcCfg['pv_scale']) ? (float)$svcCfg['pv_scale'] : 1.0;
+        $svcCfg['pv_scale'] = max(0.1, min(2.0, $manualScale * (float)$calibration['scale']));
+        $svc = new PlannerService($batt, $grid, $svcCfg);
         $plan = $svc->makePlan($startSoc, $providerRuns, $history, $from, $to, array(
             'unavailable_providers' => $unavailable,
+            'calibration' => $calibration,
         ));
+        $plan['calibration'] = $calibration;
+        $plan['pv_by_provider_tomorrow_kwh'] = self::providerDailyKwh($providerRuns, $tz, $from, 1);
         $compiled = $svc->compileAndVerify($plan);
         $plan['tou_compiled'] = $compiled;
         $plan['diagnostics'] = $diagnostics;
@@ -125,6 +150,142 @@ class PlanRunner
             call_user_func($hooks['say'], $plan['explanation_obj']['text']);
         }
         return $plan;
+    }
+
+    /**
+     * Compare the forecast published for the previous local day with the PV
+     * energy actually measured on that day, then persist the accuracy row and
+     * return a smoothed correction factor. Safe no-op when data is missing.
+     */
+    private static function calibrate(array $cfg, $store, $tz, $nowUtc)
+    {
+        $empty = array('applied' => false, 'n' => 0, 'mae' => null, 'bias' => null,
+            'rmse' => null, 'mape' => null, 'scale' => 1.0,
+            'recommended_scale' => 1.0, 'date_local' => null, 'forecast_kwh' => null,
+            'actual_kwh' => null);
+        if (!$store || !method_exists($store, 'loadCalibration')
+            || !method_exists($store, 'loadForecastForLocalDay')
+            || !method_exists($store, 'loadPvActualKwhByLocalDay')) {
+            return $empty;
+        }
+        // Enabled by default; can be disabled explicitly for a manual PV_SCALE.
+        if (array_key_exists('PV_AUTO_CALIBRATE', $cfg) && empty($cfg['PV_AUTO_CALIBRATE'])) {
+            $empty['disabled'] = true;
+            return $empty;
+        }
+        try {
+            $zone = new \DateTimeZone($tz);
+            $date = (new \DateTime('@' . (int)$nowUtc))->setTimezone($zone)
+                ->modify('-1 day')->format('Y-m-d');
+            $fc = $store->loadForecastForLocalDay($date);
+            $ac = $store->loadPvActualKwhByLocalDay($date, $tz);
+            if (!$fc || empty($ac['kwh'])) {
+                return $empty;
+            }
+            $manualScale = isset($cfg['PV_SCALE']) && is_numeric($cfg['PV_SCALE'])
+                ? max(0.1, min(2.0, (float)$cfg['PV_SCALE'])) : 1.0;
+            $alpha = isset($cfg['PV_CALIBRATION_ALPHA']) ? (float)$cfg['PV_CALIBRATION_ALPHA'] : 0.25;
+            $rows = $store->loadCalibration('ensemble', 'tomorrow', 1);
+            $prev = !empty($rows[0]['SCALE']) ? (float)$rows[0]['SCALE'] : 1.0;
+            $res = PvCalibrationService::evaluate(
+                array(array('forecast' => (float)$fc['forecast_kwh'], 'actual' => (float)$ac['kwh'], 'date' => $date)),
+                $prev, $alpha, 0.35, 1.60, $manualScale
+            );
+            $res['date_local'] = $date;
+            // Stored forecast is the RAW model output, not the published value.
+            $res['forecast_kwh'] = (float)$fc['forecast_kwh'];
+            $res['actual_kwh'] = (float)$ac['kwh'];
+            if (method_exists($store, 'saveCalibration')) {
+                // One pair per distinct local day. Limit 30 rows now means 30
+                // real days, not 30 runs of the same day.
+                $pairs = array($date => array('forecast' => $res['forecast_kwh'],
+                    'actual' => $res['actual_kwh'], 'date' => $date));
+                foreach ($store->loadCalibration('ensemble', 'tomorrow', 30) as $h) {
+                    $d = isset($h['DATE_LOCAL']) ? $h['DATE_LOCAL'] : '';
+                    if ($d === '' || isset($pairs[$d])
+                        || empty($h['FORECAST_KWH']) || empty($h['ACTUAL_KWH'])) {
+                        continue;
+                    }
+                    $pairs[$d] = array('forecast' => (float)$h['FORECAST_KWH'],
+                        'actual' => (float)$h['ACTUAL_KWH'], 'date' => $d);
+                }
+                $combined = PvCalibrationService::evaluate($pairs, $prev, $alpha, 0.35, 1.60, $manualScale);
+                $res['n'] = $combined['n'];
+                $res['mae'] = $combined['mae'];
+                $res['bias'] = $combined['bias'];
+                $res['rmse'] = $combined['rmse'];
+                $res['mape'] = $combined['mape'];
+                $res['applied'] = $combined['applied'];
+                $res['recommended_scale'] = $combined['recommended_scale'];
+                $res['scale'] = $combined['scale'];
+                $store->saveCalibration(array_merge($res, array(
+                    'provider_id' => 'ensemble', 'horizon' => 'tomorrow',
+                    'n_samples' => $res['n'],
+                )));
+
+                // Per-provider accuracy statistics for EnsembleBuilder's
+                // weighted/best modes. The archived plan carries each
+                // provider's raw contribution for the target day.
+                $byProvider = isset($fc['payload']['pv_by_provider_tomorrow_kwh'])
+                    ? $fc['payload']['pv_by_provider_tomorrow_kwh'] : array();
+                if (is_array($byProvider)) {
+                    foreach ($byProvider as $pid => $kwh) {
+                        $pf = (float)$kwh;
+                        if ($pf <= 0) {
+                            continue;
+                        }
+                        $store->saveCalibration(array(
+                            'provider_id' => $pid, 'horizon' => 'tomorrow',
+                            'date_local' => $date,
+                            'forecast_kwh' => $pf, 'actual_kwh' => (float)$ac['kwh'],
+                            'mae' => abs($pf - (float)$ac['kwh']),
+                            'bias' => $pf - (float)$ac['kwh'],
+                            'n_samples' => 1,
+                            'scale' => null,
+                        ));
+                    }
+                }
+            }
+            return $res;
+        } catch (\Throwable $e) {
+            $empty['error'] = $e->getMessage();
+            return $empty;
+        }
+    }
+
+    /** Sum each provider's PV energy for a local day (keyed by provider id). */
+    private static function providerDailyKwh(array $runs, $tz, $refUtc, $dayOffset)
+    {
+        try {
+            $zone = new \DateTimeZone($tz);
+            $d = (new \DateTime('@' . (int)$refUtc))->setTimezone($zone);
+            $d->setTime(0, 0, 0);
+            if ($dayOffset !== 0) {
+                $d->modify(($dayOffset > 0 ? '+' : '-') . abs((int)$dayOffset) . ' day');
+            }
+            $start = (int)$d->format('U');
+            $end = (int)(clone $d)->modify('+1 day')->format('U');
+        } catch (\Throwable $e) {
+            return array();
+        }
+        $out = array();
+        foreach ($runs as $row) {
+            if (empty($row['run'])) {
+                continue;
+            }
+            $total = 0.0;
+            foreach ($row['run']->intervals as $iv) {
+                if (!empty($iv['is_missing']) || $iv['pv_energy_kwh'] === null) {
+                    continue;
+                }
+                $mid = (int)(((int)$iv['interval_start_utc'] + (int)$iv['interval_end_utc']) / 2);
+                if ($mid >= $start && $mid < $end) {
+                    $total += (float)$iv['pv_energy_kwh'];
+                }
+            }
+            $out[$row['run']->providerId] = round($total, 3);
+        }
+        return $out;
     }
 
     /** Human-readable, specific reason why no forecast was produced. */
@@ -207,7 +368,24 @@ class PlanRunner
             'pv_arrays' => self::pvArrays($cfg),
             // Manual PV forecast correction factor (1.0 = unchanged).
             'pv_scale' => isset($cfg['PV_SCALE']) && is_numeric($cfg['PV_SCALE']) ? (float)$cfg['PV_SCALE'] : 1.0,
+            'curtailment_penalty_per_kwh' => isset($cfg['CURTAILMENT_PENALTY_PER_KWH'])
+                && is_numeric($cfg['CURTAILMENT_PENALTY_PER_KWH'])
+                ? max(0.0, (float)$cfg['CURTAILMENT_PENALTY_PER_KWH']) : 0.05,
+            'controllable_hourly_kw' => self::controllableProfile($cfg),
         );
+    }
+
+    /** Optional 24-value kW profile of loads scheduled separately. */
+    private static function controllableProfile(array $cfg)
+    {
+        $raw = isset($cfg['CONTROLLABLE_HOURLY_KW_JSON']) ? $cfg['CONTROLLABLE_HOURLY_KW_JSON'] : '';
+        if (is_string($raw) && $raw !== '') {
+            $d = json_decode($raw, true);
+            if (is_array($d) && count($d) === 24) {
+                return array_values($d);
+            }
+        }
+        return array();
     }
 
     /** Decode the configured PV arrays (PV_ARRAYS_JSON) into an array. */

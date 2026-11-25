@@ -44,6 +44,14 @@ class DiagnosticsService
     private $propGetter;
     /** @var float|null wall-clock deadline (epoch seconds) for a collect pass */
     private $deadline = null;
+    /** @var QuotaManager|null configured during collect() */
+    private $quota = null;
+    /** @var int|null current horizon bounds (for cache validation) */
+    private $horizonFrom = null;
+    /** @var int|null */
+    private $horizonTo = null;
+    /** @var array|null resolved site (for cache config-hash validation) */
+    private $site = null;
 
     /**
      * @param array $cfg module config
@@ -88,6 +96,15 @@ class DiagnosticsService
             ));
         }
 
+        // Hashes let the cache reject runs produced with different coordinates
+        // or a different PV array configuration.
+        $locationHash = md5(json_encode(array(
+            $latSet ? (float)$cfg['LATITUDE'] : 50.45,
+            $lonSet ? (float)$cfg['LONGITUDE'] : 30.52,
+            $tz,
+        )));
+        $pvHash = md5(json_encode($arrays));
+
         return array(
             'lat' => $latSet ? (float)$cfg['LATITUDE'] : 50.45,   // Kyiv fallback
             'lon' => $lonSet ? (float)$cfg['LONGITUDE'] : 30.52,
@@ -97,6 +114,9 @@ class DiagnosticsService
             'lon_set' => $lonSet,
             'arrays_set' => $arraysSet,
             'arrays_source' => $arraysSet ? 'config' : 'fallback',
+            'location_hash' => $locationHash,
+            'pv_hash' => $pvHash,
+            'om_default_temp_c' => isset($cfg['OM_DEFAULT_TEMP_C']) ? $cfg['OM_DEFAULT_TEMP_C'] : 10.0,
         );
     }
 
@@ -113,6 +133,9 @@ class DiagnosticsService
     {
         $cfg = $this->cfg;
         $site = $this->resolveSite();
+        $this->site = $site;
+        $this->horizonFrom = (int)$fromUtc;
+        $this->horizonTo = (int)$toUtc;
         $env = $this->environment($fromUtc, $toUtc, $site);
 
         // Tight, bounded HTTP budget so a single slow / rate-limited provider
@@ -128,7 +151,26 @@ class DiagnosticsService
         $deadline = microtime(true) + $collectBudgetSec;
         $this->deadline = $deadline;
 
-        $quota = new QuotaManager();
+        // Quota/backoff/circuit-breaker state is now restored from storage and
+        // configured from module settings. Previously a fresh, unconfigured
+        // QuotaManager was created on every run, so none of it worked.
+        $quotaState = array();
+        if ($store && method_exists($store, 'loadQuotaState')) {
+            try { $quotaState = (array)$store->loadQuotaState(); } catch (\Throwable $e) {}
+        }
+        $quota = new QuotaManager($quotaState);
+        $quota->configure('solcast', array(
+            'daily_limit_units' => isset($cfg['SOLCAST_DAILY_LIMIT_UNITS']) && is_numeric($cfg['SOLCAST_DAILY_LIMIT_UNITS'])
+                ? max(0, (int)$cfg['SOLCAST_DAILY_LIMIT_UNITS']) : 0,
+            'reserved_units' => isset($cfg['SOLCAST_RESERVED_UNITS']) && is_numeric($cfg['SOLCAST_RESERVED_UNITS'])
+                ? max(0, (float)$cfg['SOLCAST_RESERVED_UNITS']) : 2.0,
+            'shared_externally' => !empty($cfg['SOLCAST_SHARED_EXTERNALLY']),
+        ));
+        $quota->configure('forecast_solar', array(
+            'daily_limit_units' => isset($cfg['FORECAST_SOLAR_DAILY_LIMIT_UNITS']) && is_numeric($cfg['FORECAST_SOLAR_DAILY_LIMIT_UNITS'])
+                ? max(0, (int)$cfg['FORECAST_SOLAR_DAILY_LIMIT_UNITS']) : 0,
+        ));
+        $this->quota = $quota;
         $pv = new PvModel($site['arrays'], 0.0);
 
         // Sun/night context drives the fetch schedule.
@@ -138,8 +180,11 @@ class DiagnosticsService
             'cheap_end_hour' => isset($cfg['CHEAP_END_HOUR']) ? (int)$cfg['CHEAP_END_HOUR'] : 7,
             'cheap_start_min' => isset($cfg['CHEAP_START_MIN']) ? (int)$cfg['CHEAP_START_MIN'] : 0,
             'cheap_end_min' => isset($cfg['CHEAP_END_MIN']) ? (int)$cfg['CHEAP_END_MIN'] : 0,
-        ), $site['lat']);
+        ), $site['lat'], $site['lon']);
         $scheduler = new FetchScheduler($this->schedulerPolicy());
+        // The pre-07:00 refinement may spend quota units reserved for it.
+        $critical = !empty($sun['critical_refine_utc'])
+            && time() >= (int)$sun['critical_refine_utc'];
 
         $runs = array();
         $providers = array();
@@ -148,11 +193,11 @@ class DiagnosticsService
         if (!empty($cfg['OPEN_METEO_ENABLED'])) {
             $providers['open_meteo'] = $this->fetchProvider(
                 'open_meteo',
-                function () use ($http, $quota, $pv, $site, $fromUtc, $toUtc) {
+                function ($isCritical) use ($http, $quota, $pv, $site, $fromUtc, $toUtc) {
                     $a = new OpenMeteoAdapter($http, $quota, $pv, $site, 'open_meteo');
-                    return $a->fetch($fromUtc, $toUtc, false);
+                    return $a->fetch($fromUtc, $toUtc, $isCritical);
                 },
-                'open-meteo', $store, $runs, $scheduler, $sun, $now, $force
+                'open-meteo', $store, $runs, $scheduler, $sun, $now, $force, $critical
             );
         } else {
             $providers['open_meteo'] = $this->disabledRow();
@@ -163,11 +208,11 @@ class DiagnosticsService
             $key = isset($cfg['FORECAST_SOLAR_API_KEY']) ? $cfg['FORECAST_SOLAR_API_KEY'] : null;
             $providers['forecast_solar'] = $this->fetchProvider(
                 'forecast_solar',
-                function () use ($http, $quota, $site, $key, $fromUtc, $toUtc) {
+                function ($isCritical) use ($http, $quota, $site, $key, $fromUtc, $toUtc) {
                     $a = new ForecastSolarAdapter($http, $quota, $site, $key ?: null, 'forecast_solar');
-                    return $a->fetch($fromUtc, $toUtc, false);
+                    return $a->fetch($fromUtc, $toUtc, $isCritical);
                 },
-                'forecast_solar', $store, $runs, $scheduler, $sun, $now, $force
+                'forecast_solar', $store, $runs, $scheduler, $sun, $now, $force, $critical
             );
         } else {
             $providers['forecast_solar'] = $this->disabledRow();
@@ -189,11 +234,11 @@ class DiagnosticsService
                 $skey = $cfg['SOLCAST_API_KEY'];
                 $providers['solcast'] = $this->fetchProvider(
                     'solcast',
-                    function () use ($http, $quota, $ids, $skey, $fromUtc, $toUtc) {
+                    function ($isCritical) use ($http, $quota, $ids, $skey, $fromUtc, $toUtc) {
                         $a = new SolcastAdapter($http, $quota, $ids, $skey, 'solcast');
-                        return $a->fetch($fromUtc, $toUtc, false);
+                        return $a->fetch($fromUtc, $toUtc, $isCritical);
                     },
-                    'solcast', $store, $runs, $scheduler, $sun, $now, $force
+                    'solcast', $store, $runs, $scheduler, $sun, $now, $force, $critical
                 );
             }
         } else {
@@ -201,6 +246,10 @@ class DiagnosticsService
         }
 
         $env['sun'] = $sun;
+
+        if ($store && method_exists($store, 'saveQuotaState')) {
+            try { $store->saveQuotaState($this->quota->getState()); } catch (\Throwable $e) {}
+        }
 
         return array(
             'runs' => $runs,
@@ -243,7 +292,7 @@ class DiagnosticsService
      * @param string $providerId
      * @param callable $fetchFn returns ['run'=>?ForecastRun,'status'=>,'detail'=>]
      */
-    private function fetchProvider($providerId, callable $fetchFn, $weatherModel, $store, array &$runs, FetchScheduler $scheduler, array $sun, $now, $force)
+    private function fetchProvider($providerId, callable $fetchFn, $weatherModel, $store, array &$runs, FetchScheduler $scheduler, array $sun, $now, $force, $critical = false)
     {
         $lastFetch = $this->cache ? $this->cache->lastFetchUtc($providerId, $now) : null;
         $sched = $scheduler->shouldFetch($providerId, $now, $lastFetch, $sun);
@@ -253,9 +302,16 @@ class DiagnosticsService
         if (!$doFetch && $this->cache) {
             $entry = $this->cache->get($providerId, $now);
             if ($entry && $entry['fresh']) {
-                return $this->cachedRow($providerId, $entry, $runs, $weatherModel, $sched);
+                $row = $this->cachedRow($providerId, $entry, $runs, $weatherModel, $sched);
+                if ($row !== null) {
+                    return $row;
+                }
+                // Cached run no longer matches this horizon/config -> refetch.
             }
             // cache missing/stale but not due -> still fetch to avoid going blind.
+            // When no cache is configured at all, the scheduler's cadence cannot
+            // be honoured without losing the forecast entirely; fetching is the
+            // safe fallback (the background cycle always supplies a cache).
             $doFetch = true;
         }
 
@@ -267,6 +323,12 @@ class DiagnosticsService
                 $entry = $this->cache->get($providerId, $now);
                 if ($entry && $entry['fresh']) {
                     $row = $this->cachedRow($providerId, $entry, $runs, $weatherModel, $sched);
+                    if ($row === null) {
+                        return array('enabled' => 1, 'status' => 'stale',
+                            'detail' => 'Кеш не покриває поточний горизонт/конфігурацію.',
+                            'total_kwh' => null, 'intervals' => 0, 'source' => 'cache',
+                            'next_fetch_utc' => $sched['next_utc']);
+                    }
                     $row['status'] = 'cached';
                     $row['detail'] = 'Пропущено (вичерпано ліміт часу збору), використано кеш (' . $this->ageText($entry['age_sec']) . ').';
                     return $row;
@@ -283,7 +345,7 @@ class DiagnosticsService
             );
         }
 
-        $r = call_user_func($fetchFn);
+        $r = call_user_func($fetchFn, (bool)$critical);
         $status = isset($r['status']) ? $r['status'] : 'unusable';
         $detail = isset($r['detail']) ? $r['detail'] : '';
 
@@ -312,6 +374,12 @@ class DiagnosticsService
             $entry = $this->cache->get($providerId, $now);
             if ($entry && $entry['fresh']) {
                 $row = $this->cachedRow($providerId, $entry, $runs, $weatherModel, $sched);
+                if ($row === null) {
+                    return array('enabled' => 1, 'status' => 'stale',
+                        'detail' => 'Live-запит не вдався, а кеш не покриває поточний горизонт/конфігурацію.',
+                        'total_kwh' => null, 'intervals' => 0, 'source' => 'cache',
+                        'next_fetch_utc' => $sched['next_utc']);
+                }
                 $row['detail'] = 'Live-запит не вдався (' . $this->humanDetail($status, $detail) . '), використано кеш (' . $this->ageText($entry['age_sec']) . ').';
                 $row['status'] = 'cached';
                 return $row;
@@ -329,18 +397,59 @@ class DiagnosticsService
         );
     }
 
-    /** Build a provider row from a cached entry and collect its run. */
+    /**
+     * Temporal coverage only. Unlike ForecastRun::coversHorizon() this does
+     * not reject runs with a few missing intervals: a `partial` run is still
+     * useful in the ensemble, and rejecting it here would refetch every cycle
+     * and burn the provider quota.
+     */
+    private function cacheCovers(ForecastRun $run, $fromUtc, $toUtc)
+    {
+        $minStart = PHP_INT_MAX;
+        $maxEnd = 0;
+        foreach ($run->intervals as $iv) {
+            $minStart = min($minStart, (int)$iv['interval_start_utc']);
+            $maxEnd = max($maxEnd, (int)$iv['interval_end_utc']);
+        }
+        return $minStart !== PHP_INT_MAX && $minStart <= (int)$fromUtc && $maxEnd >= (int)$toUtc;
+    }
+
+    /**
+     * Build a provider row from a cached entry and collect its run.
+     * Returns null when the cached run is unusable for the CURRENT horizon or
+     * site configuration — a cached run must not silently drive a new plan.
+     */
     private function cachedRow($providerId, array $entry, array &$runs, $weatherModel, array $sched)
     {
         $run = ForecastRun::fromArray($entry['run']);
-        if ($run && !empty($run->intervals)) {
-            $runs[] = array('run' => $run, 'mae' => null, 'obs' => 0, 'weather_model' => $weatherModel);
-            $total = round($run->totalPvKwh(), 3);
-            $intervals = count($run->intervals);
-        } else {
-            $total = null;
-            $intervals = 0;
+        if (!$run || empty($run->intervals)) {
+            return null;
         }
+        // 1) Coverage: the cached run must still span the meaningful part of
+        //    the current horizon. A run fetched up to CACHE_MAX_AGE_MIN ago is
+        //    naturally shorter than a freshly requested 44h horizon, so allow
+        //    that documented slack instead of rejecting every cached run.
+        $slackSec = isset($this->cfg['CACHE_HORIZON_SLACK_MIN']) && is_numeric($this->cfg['CACHE_HORIZON_SLACK_MIN'])
+            ? max(0, (int)$this->cfg['CACHE_HORIZON_SLACK_MIN']) * 60 : 6 * 3600;
+        $requiredTo = $this->horizonTo - $slackSec;
+        if (!$this->cacheCovers($run, $this->horizonFrom, $requiredTo)) {
+            return null;
+        }
+        // 2) Configuration: coordinates / PV arrays must be unchanged. Solcast
+        //    does not carry these hashes; its resource ids are part of config,
+        //    so a cached Solcast run is reused only for the same provider key.
+        if ($this->site !== null) {
+            if (!empty($run->locationConfigHash)
+                && $run->locationConfigHash !== $this->site['location_hash']) {
+                return null;
+            }
+            if (!empty($run->pvConfigHash) && $run->pvConfigHash !== $this->site['pv_hash']) {
+                return null;
+            }
+        }
+        $runs[] = array('run' => $run, 'mae' => null, 'obs' => 0, 'weather_model' => $weatherModel);
+        $total = round($run->totalPvKwh(), 3);
+        $intervals = count($run->intervals);
         return array(
             'enabled' => 1,
             'status' => 'cached',
@@ -392,6 +501,11 @@ class DiagnosticsService
                 }
                 if ($detail === 'schema') {
                     return 'Відповідь не розпізнано (несподіваний формат).';
+                }
+                if (strpos($detail, 'request succeeded') !== false
+                    || strpos($detail, 'requests failed') !== false) {
+                    return 'Жоден запит до провайдера не вдався (усі масиви/ресурси/орієнтації). '
+                        . 'Планувальник використає інші джерела.';
                 }
                 return 'Непридатно: ' . $detail;
             default:
