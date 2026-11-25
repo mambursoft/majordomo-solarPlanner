@@ -33,7 +33,7 @@ jobs:
             | xargs -0 -n1 php -l
 
       - name: Validate modinfo.json
-        run: php -r '$d=json_decode(file_get_contents("modinfo.json"),true); if(!$d||!isset($d["name"],$d["version"],$d["title"])){fwrite(STDERR,"invalid modinfo\n");exit(1);} echo "modinfo ok: {$d["name"]} {$d["version"]}\n";'
+        run: php tests/validate_modinfo.php
 
       - name: Run offline test suite
         run: php tests/run.php
