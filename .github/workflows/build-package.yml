@@ -1,0 +1,31 @@
+name: Build install package
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build archives
+        run: python build_package.py --force --skip-git
+      - uses: actions/upload-artifact@v4
+        with:
+          name: install-package
+          path: |
+            solarplanner.tar.gz
+            solarplanner.tgz
+            app_solarplanner.tar.gz
+            app_solarplanner.tgz
+          if-no-files-found: error
